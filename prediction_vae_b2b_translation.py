@@ -73,9 +73,10 @@ bert2bert.config.early_stopping = True
 bert2bert.config.length_penalty = 3.0
 #bert2bert.config.num_beams = 4
 bert2bert.config.num_beams = 1
-bert2bert.config.num_beam_groups = 1
+bert2bert.config.num_beam_groups = 0
 bert2bert.config.do_sample = False
-#bert2bert.config.add_cross_attention=True
+bert2bert.config.add_cross_attention=True
+bert2bert.config.is_nar=True
 
 bert2bert.config.decoder_start_token_id = tokenizer.bos_token_id
 bert2bert.config.eos_token_id = tokenizer.eos_token_id
