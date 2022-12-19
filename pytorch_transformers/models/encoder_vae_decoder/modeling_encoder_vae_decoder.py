@@ -172,11 +172,13 @@ class EncoderVaeDecoderModel(PreTrainedModel):
             encoder = AutoModel.from_config(config.encoder)
 
         if decoder is None:
-            from ..auto.modeling_auto import AutoModelForCausalLM, AutoModelForMaskedLM
+            #from ..auto.modeling_auto import AutoModelForCausalLM, AutoModelForMaskedLM
 
             if self.config.is_nar:
+                from ..auto.modeling_auto import AutoModelForMaskedLM
                 decoder = AutoModelForMaskedLM.from_config(config.decoder)
             else:
+                from ..auto.modeling_auto import AutoModelForCausalLM
                 decoder = AutoModelForCausalLM.from_config(config.decoder)
 
         self.encoder = encoder
@@ -360,21 +362,27 @@ class EncoderVaeDecoderModel(PreTrainedModel):
                     logger.info(
                         f"Initializing {decoder_pretrained_model_name_or_path} as a decoder model. Cross attention layers are added to {decoder_pretrained_model_name_or_path} and randomly initialized if {decoder_pretrained_model_name_or_path}'s architecture allows for cross attention layers."
                     )
-                    decoder_config.is_decoder = True
+                    decoder_config.is_decoder = False
                     decoder_config.add_cross_attention = True
 
                 kwargs_decoder["config"] = decoder_config
-
+                #decoder_config.
             if kwargs_decoder["config"].is_decoder is False or kwargs_decoder["config"].add_cross_attention is False:
                 logger.warning(
                     f"Decoder model {decoder_pretrained_model_name_or_path} is not initialized as a decoder. In order to initialize {decoder_pretrained_model_name_or_path} as a decoder, make sure that the attributes `is_decoder` and `add_cross_attention` of `decoder_config` passed to `.from_encoder_decoder_pretrained(...)` are set to `True` or do not pass a `decoder_config` to `.from_encoder_decoder_pretrained(...)`"
                 )
 
-            #if config.is_nar:
-            decoder = AutoModelForMaskedLM.from_pretrained(decoder_pretrained_model_name_or_path, **kwargs_decoder)
-            #else:
-            #    decoder = AutoModelForCausalLM.from_pretrained(decoder_pretrained_model_name_or_path, **kwargs_decoder)
-            #decoder = AutoModel.from_pretrained(decoder_pretrained_model_name_or_path, **kwargs_encoder)
+            if cls.is_nar:
+                logger.info("AutoModelForMaskedLM", cls.is_nar)
+                print("AutoModelForMaskedLM", cls.is_nar)
+                decoder = AutoModelForMaskedLM.from_pretrained(decoder_pretrained_model_name_or_path, **kwargs_decoder)
+                #exit()
+            else:
+                logger.info("AutoModelForCausalLM", cls.is_nar)
+                print("AutoModelForCausalLM", cls.is_nar)
+                decoder = AutoModelForCausalLM.from_pretrained(decoder_pretrained_model_name_or_path, **kwargs_decoder)
+                #exit()
+                #decoder = AutoModel.from_pretrained(decoder_pretrained_model_name_or_path, **kwargs_encoder)
 
         # instantiate config with corresponding kwargs
         config = EncoderVaeDecoderConfig.from_encoder_vae_decoder_configs(encoder.config, decoder.config, **kwargs)
@@ -478,61 +486,96 @@ class EncoderVaeDecoderModel(PreTrainedModel):
         loss_kl = (kl_mask * loss_kl).sum(dim=1)
 
         #exit()
+        """
 
-        # Decode
-        decoder_outputs = self.decoder(
-            input_ids=decoder_input_ids,
-            attention_mask=decoder_attention_mask,
-            encoder_hidden_states=encoder_hidden_states,
-            encoder_attention_mask=attention_mask,
-            inputs_embeds=decoder_inputs_embeds,
-            #past=latent_z,
-            labels=labels,
-            output_attentions=output_attentions,
-            output_hidden_states=output_hidden_states,
-            #use_cache=use_cache,
-            #past_key_values=past_key_values,
-            return_dict=return_dict,
-            **kwargs_decoder,
-        )
+        decoder_input_ids = input_ids.masked_fill((input_ids != self.config.bos_token_id)
+                               & (input_ids != self.config.eos_token_id)
+                               & (input_ids != self.config.sep_token_id)
+                               & (input_ids != self.config.pad_token_id), self.config.pad_token_id)
+                               
+        """
+        if self.config.is_nar:
+            decoder_outputs = self.decoder(
+                input_ids=decoder_input_ids,
+                attention_mask=decoder_attention_mask,
+                encoder_hidden_states=encoder_hidden_states,
+                encoder_attention_mask=attention_mask,
+                inputs_embeds=decoder_inputs_embeds,
+                past=latent_z,
+                labels=labels,
+                output_attentions=output_attentions,
+                output_hidden_states=output_hidden_states,
+                use_cache=use_cache,
+                past_key_values=past_key_values,
+                return_dict=return_dict,
+                **kwargs_decoder,
+            )
+            """
+            decoder_outputs = self.decoder(
+                input_ids=decoder_input_ids,
+                attention_mask=decoder_attention_mask,
+                encoder_hidden_states=encoder_hidden_states,
+                encoder_attention_mask=attention_mask,
+                inputs_embeds=decoder_inputs_embeds,
+                #past=latent_z,
+                labels=labels,
+                output_attentions=output_attentions,
+                output_hidden_states=output_hidden_states,
+                #use_cache=use_cache,
+                #past_key_values=past_key_values,
+                return_dict=return_dict,
+                **kwargs_decoder,
+            )
+            """
+        else:
+            decoder_outputs = self.decoder(
+                input_ids=decoder_input_ids,
+                attention_mask=decoder_attention_mask,
+                encoder_hidden_states=encoder_hidden_states,
+                encoder_attention_mask=attention_mask,
+                inputs_embeds=decoder_inputs_embeds,
+                past=latent_z,
+                labels=labels,
+                output_attentions=output_attentions,
+                output_hidden_states=output_hidden_states,
+                use_cache=use_cache,
+                past_key_values=past_key_values,
+                return_dict=return_dict,
+                **kwargs_decoder,
+            )
 
         if not return_dict:
             return decoder_outputs + encoder_outputs
 
-        """
-        return Seq2SeqLMOutput(
-            loss=decoder_outputs.loss,
-            logits=decoder_outputs.logits,
-            past_key_values=decoder_outputs.past_key_values,
-            decoder_hidden_states=decoder_outputs.hidden_states,
-            decoder_attentions=decoder_outputs.attentions,
-            cross_attentions=decoder_outputs.cross_attentions,
-            encoder_last_hidden_state=encoder_outputs.last_hidden_state,
-            encoder_hidden_states=encoder_outputs.hidden_states,
-            encoder_attentions=encoder_outputs.attentions,
-        )
-        """
         if self.config.is_nar:
             print("is_nar")
-            #exit()
+            """
             return MaskedLMOutput(
-                # return Seq2SeqLMLatentOutput(
+                loss=decoder_outputs.loss,
+                logits=decoder_outputs.logits,
+                hidden_states=decoder_outputs.hidden_states,
+                attentions=decoder_outputs.attentions,
+            )
+            """
+            return MaskedLMOutput(
                 loss=decoder_outputs.loss,
                 logits=decoder_outputs.logits,
                 #past_key_values=decoder_outputs.past_key_values,
-                hidden_states=decoder_outputs.hidden_states,
-                attentions=decoder_outputs.attentions,
-                #cross_attentions=decoder_outputs.cross_attentions,
-                #encoder_last_hidden_state=encoder_outputs.last_hidden_state,
-                #encoder_hidden_states=encoder_outputs.hidden_states,
-                #encoder_attentions=encoder_outputs.attentions,
+                decoder_hidden_states=decoder_outputs.hidden_states,
+                decoder_attentions=decoder_outputs.attentions,
+                cross_attentions=decoder_outputs.cross_attentions,
+                encoder_last_hidden_state=encoder_outputs.last_hidden_state,
+                encoder_hidden_states=encoder_outputs.hidden_states,
+                encoder_attentions=encoder_outputs.attentions,
                 # past=decoder_outputs.past,
             )
+            #print(output["logits"])
+            #exit()
+            #return output
         else:
             return Seq2SeqLMLatentOutput(
                 loss=decoder_outputs.loss,
                 logits=decoder_outputs.logits,
-                past_key_values=decoder_outputs.past_key_values,
                 decoder_hidden_states=decoder_outputs.hidden_states,
                 decoder_attentions=decoder_outputs.attentions,
                 cross_attentions=decoder_outputs.cross_attentions,
@@ -541,6 +584,7 @@ class EncoderVaeDecoderModel(PreTrainedModel):
                 encoder_attentions=encoder_outputs.attentions,
                 #past=decoder_outputs.past,
         )
+
 
     def prepare_inputs_for_generation(
         self, input_ids, past=None, attention_mask=None, use_cache=None, encoder_outputs=None, **kwargs
