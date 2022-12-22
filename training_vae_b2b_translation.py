@@ -66,6 +66,7 @@ def compute_metrics(pred):
     
 
 
+EncoderVaeDecoderModel.is_nar=True
 model = EncoderVaeDecoderModel.from_encoder_vae_decoder_pretrained("bert-base-multilingual-uncased",
                                                                    "bert-base-multilingual-uncased")
 
@@ -83,16 +84,19 @@ tokenizer.add_special_tokens({'pad_token': '[PAD]'})
 model.config.decoder_start_token_id = tokenizer.bos_token_id
 model.config.eos_token_id = tokenizer.eos_token_id
 model.config.pad_token_id = tokenizer.pad_token_id
-model.config.is_decoder = True
+model.config.is_decoder = False
 model.config.add_cross_attention = True
 model.config.decoder.add_cross_attention = True
 model.config.is_encoder_vae_decoder = True
 model.config.is_encoder_decoder = False
 model.config.latent_size = 768
+model.config.is_nar=True
+model.config.tie_encoder_decoder=True
+model.config.output_attentions=True
 
 # sensible parameters for beam search
 model.config.vocab_size = model.config.decoder.vocab_size
-model.config.max_length = 512
+model.config.max_length = 142
 model.config.min_length = 56
 model.config.no_repeat_ngram_size = 3
 model.config.early_stopping = True
