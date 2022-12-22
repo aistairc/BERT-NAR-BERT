@@ -1,7 +1,6 @@
 from pytorch_transformers import (EncoderVaeDecoderModel, BertTokenizer, Seq2SeqTrainingArguments, Seq2SeqTrainer)
+#from pytorch_transformers import (EncoderDecoderModel, BertTokenizer, TrainingArguments, Trainer, Seq2SeqTrainingArguments, Seq2SeqTrainer)
 import datasets
-import evaluate
-import numpy as np
 from functools import partial
 import torch
 torch.cuda.empty_cache()
@@ -27,6 +26,9 @@ def process_data_to_model_inputs(batch, encoder_max_length=512, decoder_max_leng
     batch["decoder_input_ids"] = outputs.input_ids
     batch["decoder_attention_mask"] = outputs.attention_mask
     batch["labels"] = outputs.input_ids.copy()
+    print(batch["input_ids"])
+    print(batch["decoder_input_ids"])
+    #exit()
 
     # because BERT automatically shifts the labels, the labels correspond exactly to `decoder_input_ids`.
     # We have to make sure that the PAD token is ignored
@@ -51,23 +53,12 @@ def manage_dataset_to_specify_bert(dataset, encoder_max_length=512, decoder_max_
     dataset.set_format(type="torch", columns=bert_wants_to_see)
     return dataset
 
-# load bleu for validation
-bleu = evaluate.load("bleu")
-
-def compute_metrics(pred):
-    labels_ids = pred.label_ids
-    pred_ids = pred.predictions
-
-    pred_str = tokenizer.batch_decode(pred_ids, skip_special_tokens=True)
-    labels_ids[labels_ids == -100] = tokenizer.pad_token_id
-    label_str = tokenizer.batch_decode(labels_ids, skip_special_tokens=True)
-    bleu_output = bleu.compute(predictions=pred_str, references=label_str, max_order=4)
-    return {"bleu4": round(np.mean(bleu_output["bleu"]), 4)}
-    
-
-
+EncoderVaeDecoderModel.is_nar=True
 model = EncoderVaeDecoderModel.from_encoder_vae_decoder_pretrained("bert-base-multilingual-uncased",
                                                                    "bert-base-multilingual-uncased")
+
+#model = EncoderDecoderModel.from_encoder_decoder_pretrained("bert-base-multilingual-uncased",
+#                                                                   "bert-base-multilingual-uncased")
 
 """ Tokenization Part """
 
@@ -83,16 +74,21 @@ tokenizer.add_special_tokens({'pad_token': '[PAD]'})
 model.config.decoder_start_token_id = tokenizer.bos_token_id
 model.config.eos_token_id = tokenizer.eos_token_id
 model.config.pad_token_id = tokenizer.pad_token_id
-model.config.is_decoder = True
+model.config.is_decoder = False
 model.config.add_cross_attention = True
 model.config.decoder.add_cross_attention = True
 model.config.is_encoder_vae_decoder = True
 model.config.is_encoder_decoder = False
 model.config.latent_size = 768
+model.config.is_nar=True
+model.config.tie_encoder_decoder=True
+model.config.output_attentions=True
+#model.config.decoder.is_nar = True
+
 
 # sensible parameters for beam search
 model.config.vocab_size = model.config.decoder.vocab_size
-model.config.max_length = 512
+model.config.max_length = 142
 model.config.min_length = 56
 model.config.no_repeat_ngram_size = 3
 model.config.early_stopping = True
@@ -119,29 +115,32 @@ val_data = manage_dataset_to_specify_bert(val_data)
 batch_size = 1
 # set training arguments - these params are not really tuned, feel free to change
 training_args = Seq2SeqTrainingArguments(
-    output_dir="/groups/3/gac50543/migrated_from_SFA_GPFS/matiss/translation/BERT2BERT-output",
+#training_args = TrainingArguments(
+    output_dir="./results/translation/vae-en-de",
     evaluation_strategy="steps",
     per_device_train_batch_size=batch_size,
     per_device_eval_batch_size=batch_size,
     predict_with_generate=True,
     logging_steps=2,  # set to 1000 for full training
-    save_steps=50,  # set to 500 for full training
+    save_steps=10,  # set to 500 for full training
     eval_steps=1,  # set to 8000 for full training
     warmup_steps=1,  # set to 2000 for full training
-    max_steps=100,  # delete for full training
+    max_steps=10,  # delete for full training
     overwrite_output_dir=True,
     save_total_limit=1,
+    #nar=True
     # fp16=True,
 )
 
 # trainer
 trainer = Seq2SeqTrainer(
+#trainer = Trainer(
     model=model,
     tokenizer=tokenizer,
     args=training_args,
-    compute_metrics=compute_metrics,
     train_dataset=train_data,
     eval_dataset=val_data,
+    #return_dict=True
 )
 
-trainer.train()
+out = trainer.train()
