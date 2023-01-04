@@ -413,12 +413,20 @@ class GenerationMixin:
         return model_kwargs
 
     def _prepare_decoder_input_ids_for_generation(
-        self, input_ids: torch.LongTensor, decoder_start_token_id: int = None, bos_token_id: int = None
+        self, input_ids: torch.LongTensor, decoder_start_token_id: int = None, bos_token_id: int = None, eos_token_id: int = None, unk_token_id: int = None, pad_token_id: int = None
     ) -> torch.LongTensor:
         decoder_start_token_id = self._get_decoder_start_token_id(decoder_start_token_id, bos_token_id)
-        decoder_input_ids = (
-            torch.ones((input_ids.shape[0], 1), dtype=torch.long, device=input_ids.device) * decoder_start_token_id
-        )
+        if self.config.is_nar:
+            decoder_input_ids = input_ids.masked_fill((input_ids != decoder_start_token_id)
+                                                          & (input_ids != eos_token_id)
+                                                          & (input_ids != pad_token_id), unk_token_id)
+            #print(decoder_input_ids[:, 0:7])
+            decoder_input_ids = decoder_input_ids[:, 0:decoder_input_ids.argmin().item()]
+
+        else:
+            decoder_input_ids = (
+                torch.ones((input_ids.shape[0], 1), dtype=torch.long, device=input_ids.device) * decoder_start_token_id
+            )
         return decoder_input_ids
 
     def _get_pad_token_id(self, pad_token_id: int = None, eos_token_id: int = None) -> int:
@@ -678,6 +686,7 @@ class GenerationMixin:
         bos_token_id: Optional[int] = None,
         pad_token_id: Optional[int] = None,
         eos_token_id: Optional[int] = None,
+        unk_token_id: Optional[int] = None,
         length_penalty: Optional[float] = None,
         no_repeat_ngram_size: Optional[int] = None,
         encoder_no_repeat_ngram_size: Optional[int] = None,
@@ -891,6 +900,7 @@ class GenerationMixin:
         pad_token_id = pad_token_id if pad_token_id is not None else self.config.pad_token_id
         bos_token_id = bos_token_id if bos_token_id is not None else self.config.bos_token_id
         eos_token_id = eos_token_id if eos_token_id is not None else self.config.eos_token_id
+        unk_token_id = unk_token_id if unk_token_id is not None else self.config.unk_token_id
 
         output_scores = output_scores if output_scores is not None else self.config.output_scores
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
@@ -930,8 +940,14 @@ class GenerationMixin:
             if "decoder_input_ids" in model_kwargs:
                 input_ids = model_kwargs.pop("decoder_input_ids")
             else:
-                input_ids = self._prepare_decoder_input_ids_for_generation(
-                    input_ids, decoder_start_token_id=decoder_start_token_id, bos_token_id=bos_token_id
+                input_ids = self._prepare_input_ids_for_generation(
+                #input_ids = self._prepare_decoder_input_ids_for_generation(
+                    input_ids,
+                    decoder_start_token_id=decoder_start_token_id,
+                    bos_token_id=bos_token_id,
+                    eos_token_id=eos_token_id,
+                    unk_token_id=unk_token_id,
+                    pad_token_id=pad_token_id
                 )
 
             if "encoder_outputs" not in model_kwargs or not isinstance(model_kwargs["encoder_outputs"], ModelOutput):
@@ -939,10 +955,10 @@ class GenerationMixin:
 
         if input_ids.shape[-1] >= max_length:
             input_ids_string = "decoder_input_ids" if self.config.is_encoder_decoder else "input_ids"
-            logger.warning(
-                f"Input length of {input_ids_string} is {input_ids.shape[-1]}, but ``max_length`` is set to {max_length}."
-                "This can lead to unexpected behavior. You should consider increasing ``config.max_length`` or ``max_length``."
-            )
+            # logger.warning(
+                # f"Input length of {input_ids_string} is {input_ids.shape[-1]}, but ``max_length`` is set to {max_length}."
+                # "This can lead to unexpected behavior. You should consider increasing ``config.max_length`` or ``max_length``."
+            # )
 
         # determine generation mode
         is_greedy_gen_mode = (num_beams == 1) and (num_beam_groups == 1) and do_sample is False
@@ -1305,7 +1321,8 @@ class GenerationMixin:
             )
             #print(outputs[0])
             """ last logits """
-            context_nar = outputs.logits[:, -1, :]
+            context_nar = outputs.logits
+            next_token_logits = outputs.logits[:, -1, :]
             #print(context_nar)
             #exit()
             #outputs.
@@ -1318,14 +1335,15 @@ class GenerationMixin:
             #    soft_input = context_nar
                 #print(context_nar[i])
             #probabilities = F.softmax(outputs[0], dim=-1)
-            probabilities = F.softmax(context_nar, dim=-1)
-            input_ids = torch.multinomial(probabilities, num_samples=1, replacement=False).flatten()
-            #print(input_ids)
+            probabilities = F.softmax(context_nar[0], dim=-1)
+            input_ids = torch.multinomial(probabilities, num_samples=1, replacement=True).flatten()
+            print("input_ids", input_ids)
             #exit()
 
-            next_token_logits = outputs.logits[:, -1, :]
+            #next_token_logits = outputs.logits[:, -1, :]
 
             # Store scores, attentions and hidden_states when required
+            """
             if return_dict_in_generate:
                 if output_scores:
                     scores += (next_token_logits,)
@@ -1344,7 +1362,8 @@ class GenerationMixin:
                     )
 
             # pre-process distribution
-            #next_tokens_scores = logits_processor(input_ids, next_token_logits)
+            next_tokens_scores = logits_processor(input_ids, next_token_logits)
+            """
 
             # argmax
             #next_tokens = torch.argmax(next_tokens_scores, dim=-1)
