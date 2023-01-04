@@ -102,10 +102,11 @@ model.config.is_encoder_decoder = False
 model.config.latent_size = 768
 model.config.is_nar=True
 model.config.tie_encoder_decoder=True
+model.config.output_attentions=True
 
 # sensible parameters for beam search
 model.config.vocab_size = model.config.decoder.vocab_size
-model.config.max_length = 512
+model.config.max_length = 142
 model.config.min_length = 56
 model.config.no_repeat_ngram_size = 3
 model.config.early_stopping = True

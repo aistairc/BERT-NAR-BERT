@@ -235,12 +235,21 @@ class BaseModelOutputWithPastAndCrossAttentions(ModelOutput):
             Attentions weights of the decoder's cross-attention layer, after the attention softmax, used to compute the
             weighted average in the cross-attention heads.
     """
-
+    loss: Optional[torch.FloatTensor] = None
+    logits: torch.FloatTensor = None
     last_hidden_state: torch.FloatTensor = None
     past_key_values: Optional[Tuple[Tuple[torch.FloatTensor]]] = None
     hidden_states: Optional[Tuple[torch.FloatTensor]] = None
     attentions: Optional[Tuple[torch.FloatTensor]] = None
     cross_attentions: Optional[Tuple[torch.FloatTensor]] = None
+    """
+    loss = lm_loss,
+    logits = prediction_scores,
+    past_key_values = outputs.past_key_values,
+    hidden_states = outputs.hidden_states,
+    attentions = outputs.attentions,
+    cross_attentions = outputs.cross_attentions,
+    """
 
 
 @dataclass
@@ -303,6 +312,18 @@ class Seq2SeqModelOutput(ModelOutput):
     encoder_hidden_states: Optional[Tuple[torch.FloatTensor]] = None
     encoder_attentions: Optional[Tuple[torch.FloatTensor]] = None
 
+    """
+    return Seq2SeqLMLatentOutput(
+        loss=decoder_outputs.loss,
+        logits=decoder_outputs.logits,
+        past_key_values=decoder_outputs.past_key_values,
+        decoder_hidden_states=decoder_outputs.hidden_states,
+        decoder_attentions=decoder_outputs.attentions,
+        cross_attentions=decoder_outputs.cross_attentions,
+        encoder_last_hidden_state=encoder_outputs.last_hidden_state,
+        encoder_hidden_states=encoder_outputs.hidden_states,
+        encoder_attentions=encoder_outputs.attentions,
+    """
 
 @dataclass
 class CausalLMOutput(ModelOutput):
@@ -411,6 +432,15 @@ class CausalLMOutputWithCrossAttentions(ModelOutput):
     hidden_states: Optional[Tuple[torch.FloatTensor]] = None
     attentions: Optional[Tuple[torch.FloatTensor]] = None
     cross_attentions: Optional[Tuple[torch.FloatTensor]] = None
+
+    """
+    loss = lm_loss,
+    logits = prediction_scores,
+    past_key_values = outputs.past_key_values,
+    hidden_states = outputs.hidden_states,
+    attentions = outputs.attentions,
+    cross_attentions = outputs.cross_attentions,
+    """
 
 
 @dataclass
