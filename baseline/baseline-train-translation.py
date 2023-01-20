@@ -6,8 +6,9 @@ from transformers import BertTokenizerFast
 from transformers import EncoderDecoderConfig, EncoderDecoderModel, BertConfig
 from transformers import Seq2SeqTrainingArguments, Seq2SeqTrainer
 
-train_data = datasets.load_dataset("wmt14", "de-en", split="train")
-val_data = datasets.load_dataset("wmt14", "de-en", split="validation[:10%]")
+batch_size=2  # change to 16 for full training
+encoder_max_length=512
+decoder_max_length=512
 
 #extract the translations as columns because the format in huggingface datasets for wmt14 is not practical
 def extract_features(examples):
@@ -15,20 +16,6 @@ def extract_features(examples):
         "en": [example["en"] for example in examples['translation']],
         "de": [example["de"] for example in examples['translation']],
      }
-
-
-train_data = train_data.map(extract_features, batched=True, remove_columns=["translation"])
-val_data = val_data.map(extract_features, batched=True, remove_columns=["translation"])
-
-
-tokenizer = BertTokenizerFast.from_pretrained("bert-base-multilingual-uncased")
-tokenizer.bos_token = tokenizer.cls_token
-tokenizer.eos_token = tokenizer.sep_token
-
-
-batch_size=1  # change to 16 for full training
-encoder_max_length=512
-decoder_max_length=512
 
 def process_data_to_model_inputs(batch):
   # tokenize the inputs and labels
@@ -49,6 +36,17 @@ def process_data_to_model_inputs(batch):
 
   return batch
 
+train_data = datasets.load_dataset("wmt14", "de-en", split="train[:50%]")
+val_data = datasets.load_dataset("wmt14", "de-en", split="validation[:50%]")
+
+train_data = train_data.map(extract_features, batched=True, remove_columns=["translation"])
+val_data = val_data.map(extract_features, batched=True, remove_columns=["translation"])
+
+tokenizer = BertTokenizerFast.from_pretrained("bert-base-multilingual-uncased")
+
+tokenizer.bos_token = tokenizer.cls_token
+tokenizer.eos_token = tokenizer.sep_token
+
 # load bleu for validation
 bleu = evaluate.load("bleu")
 
@@ -66,7 +64,7 @@ def compute_metrics(pred):
     
 
 # only use 32 training examples for notebook - DELETE LINE FOR FULL TRAINING
-train_data = train_data.select(range(100))
+# train_data = train_data.select(range(100))
 
 train_data = train_data.map(
     process_data_to_model_inputs, 
@@ -80,7 +78,7 @@ train_data.set_format(
 
 
 # only use 16 training examples for notebook - DELETE LINE FOR FULL TRAINING
-val_data = val_data.select(range(100))
+# val_data = val_data.select(range(100))
 
 val_data = val_data.map(
     process_data_to_model_inputs, 
@@ -106,13 +104,13 @@ model.config.pad_token_id = tokenizer.pad_token_id
 
 # sensible parameters for beam search
 model.config.vocab_size = model.config.decoder.vocab_size
-model.config.max_length = 512
+model.config.max_length = 142
 model.config.min_length = 56
 model.config.no_repeat_ngram_size = 3
 model.config.early_stopping = True
 model.config.length_penalty = 2.0
-model.config.num_beams = 1
-# model.config.num_beams = 4
+# model.config.num_beams = 1
+model.config.num_beams = 4
 
     
 # set training arguments - these params are not really tuned, feel free to change
@@ -122,11 +120,11 @@ training_args = Seq2SeqTrainingArguments(
     per_device_train_batch_size=batch_size,
     per_device_eval_batch_size=batch_size,
     predict_with_generate=True,
-    logging_steps=2,  # set to 1000 for full training
-    save_steps=50,  # set to 500 for full training
-    eval_steps=1,  # set to 8000 for full training
-    warmup_steps=1,  # set to 2000 for full training
-    max_steps=100,  # delete for full training
+    logging_steps=300,  # set to 1000 for full training
+    save_steps=1000,  # set to 500 for full training
+    eval_steps=500,  # set to 8000 for full training
+    warmup_steps=200,  # set to 2000 for full training
+    # max_steps=100,  # delete for full training
     overwrite_output_dir=True,
     save_total_limit=1,
     fp16=True, 
