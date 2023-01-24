@@ -1,0 +1,49 @@
+NUM_NODES=8
+NUM_GPUS_PER_NODE=4
+OMP_NUM_THREADS=1
+MASTER_ADDR=g0074
+NODE_RANK=6
+Total GPUS: 32
+Traceback (most recent call last):
+Traceback (most recent call last):
+  File "./baseline-train-translation.py", line 4, in <module>
+  File "./baseline-train-translation.py", line 4, in <module>
+Traceback (most recent call last):
+  File "./baseline-train-translation.py", line 4, in <module>
+Traceback (most recent call last):
+  File "./baseline-train-translation.py", line 4, in <module>
+    import evaluate
+ModuleNotFoundError: No module named 'evaluate'
+    import evaluate
+ModuleNotFoundError: No module named 'evaluate'
+    import evaluate
+ModuleNotFoundError: No module named 'evaluate'
+    import evaluate
+ModuleNotFoundError: No module named 'evaluate'
+Killing subprocess 114308
+Killing subprocess 114309
+Killing subprocess 114310
+Killing subprocess 114311
+Traceback (most recent call last):
+  File "/apps/centos7/python/3.8.13_gcc9.3.0/lib/python3.8/runpy.py", line 194, in _run_module_as_main
+    return _run_code(code, main_globals, None,
+  File "/apps/centos7/python/3.8.13_gcc9.3.0/lib/python3.8/runpy.py", line 87, in _run_code
+    exec(code, run_globals)
+  File "/home/aae15163zd/venv/pytorch/lib/python3.8/site-packages/torch/distributed/launch.py", line 340, in <module>
+    main()
+  File "/home/aae15163zd/venv/pytorch/lib/python3.8/site-packages/torch/distributed/launch.py", line 326, in main
+    sigkill_handler(signal.SIGTERM, None)  # not coming back
+  File "/home/aae15163zd/venv/pytorch/lib/python3.8/site-packages/torch/distributed/launch.py", line 301, in sigkill_handler
+    raise subprocess.CalledProcessError(returncode=last_return_code, cmd=cmd)
+subprocess.CalledProcessError: Command '['/home/aae15163zd/venv/pytorch/bin/python', '-u', './baseline-train-translation.py', '--local_rank=3']' returned non-zero exit status 1.
+--------------------------------------------------------------------------
+Primary job  terminated normally, but 1 process returned
+a non-zero exit code. Per user-direction, the job has been aborted.
+--------------------------------------------------------------------------
+--------------------------------------------------------------------------
+mpirun detected that one or more processes exited with non-zero status, thus causing
+the job to be terminated. The first process to do so was:
+
+  Process name: [[49921,1],0]
+  Exit code:    1
+--------------------------------------------------------------------------

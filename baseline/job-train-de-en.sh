@@ -2,13 +2,13 @@
 
 #$ -l rt_F=1
 #$ -l h_rt=72:00:00
-#$ -t 1-8
+#$ -t 1-2
 #$ -j y
 #$ -cwd
 #$ -v GPU_COMPUTE_MODE=1
 #$ -m ea
 
-source /home/aad13940yw/anaconda3/bin/activate b2b-gen
+#source /home/aad13940yw/anaconda3/bin/activate b2b-gen
 source /etc/profile.d/modules.sh
 
 module load gcc/9.3.0
@@ -20,6 +20,8 @@ module load openmpi/4.0.5
 module load cuda/11.2/11.2.2
 module load cudnn/8.1/8.1.1
 module load nccl/2.8/2.8.4-1 
+
+source /home/aae15163zd/venv/pytorch/bin/activate
 
 export PYTHONUNBUFFERED=1
 export PYTHONHASHSEED=0
@@ -63,5 +65,5 @@ mpirun -np 1 \
     --nproc_per_node=$NUM_GPUS_PER_NODE \
     --master_addr="$MASTER_ADDR" \
     --master_port=29500 \
-    ./notebook-train-translation.py \
+    ./baseline-train-translation.py \
 

@@ -1,44 +1,31 @@
 #!/bin/bash
 
 #$ -l rt_F=1
-#$ -l h_rt=4:00:00
-#$ -t 1-5
+#$ -l h_rt=1:00:00
+#$ -t 1:2
 #$ -j y
 #$ -cwd
 #$ -v GPU_COMPUTE_MODE=1
 #$ -m ea
 
-#source /home/aad13940yw/anaconda3/bin/activate b2b-gen
-#source ~/miniconda3/bin/activate b2b-gen
-source ~/miniconda3/bin/activate ddp-optimus-v2
-source /etc/profile.d/modules.sh
-
-module load gcc/9.3.0
-module load cmake/3.22.3
-module load intel-mkl/2022.0.0
-module load openjdk/11.0.15.0.9
-module load python/3.8/3.8.13
+source /etc/profile.d/modules.sh                                                                                                                            
+module load gcc/9.3.0                                                                                                                                       
+module load python/3.8/3.8.13                                                                                                                               
+module load cuda/11.1/11.1.1                                                                                                                                
+module load cudnn/8.0/8.0.5                                                                                                                                 
 module load openmpi/4.0.5
-module load cuda/11.2/11.2.2
-module load cudnn/8.1/8.1.1
-module load nccl/2.8/2.8.4-1 
+module load nccl/2.8/2.8.4-1                                                                                                                                
 
-export PYTHONUNBUFFERED=1
-export PYTHONHASHSEED=0
-
+source ~/venv/pytorch/bin/activate                                                                                                                          
 
 CACHE_DIR=".abci_ddp_caches/$JOB_ID"
-
 mkdir -p "$CACHE_DIR"
 
-sleep 30
-
+sleep 10
 mpirun -np 1 cp "$SGE_JOB_HOSTLIST" "$CACHE_DIR/$SGE_TASK_ID"
-
-sleep 30
+sleep 10
 
 MASTER_FILE="$CACHE_DIR/undefined"
-
 if [ ! -f "$MASTER_FILE" ]; then
     MASTER_FILE="$CACHE_DIR/1"
 fi
@@ -49,26 +36,5 @@ export OMP_NUM_THREADS=1
 export MASTER_ADDR=$(cat "$MASTER_FILE")
 export NODE_RANK=$(expr $SGE_TASK_ID - 1)
 
-export PYTHONFAULTHANDLER=1
-
-echo "NUM_NODES=$NUM_NODES"
-echo "NUM_GPUS_PER_NODE=$NUM_GPUS_PER_NODE"
-echo "OMP_NUM_THREADS=$OMP_NUM_THREADS"
-echo "MASTER_ADDR=$MASTER_ADDR"
-echo "NODE_RANK=$NODE_RANK"
-
-
-TOTAL_GPUS=$( expr ${NUM_NODES} '*' ${NUM_GPUS_PER_NODE})
-echo "Total GPUS:" $TOTAL_GPUS
-
-#torchrun \                                                                                                                                                                                                                       
-#python -m torch.distributed.launch \
-
 mpirun -np 1 \
-    python -m torch.distributed.launch \
-    --nnodes=$NUM_NODES \
-    --node_rank=$NODE_RANK \
-    --nproc_per_node=$NUM_GPUS_PER_NODE \
-    --master_addr="$MASTER_ADDR" \
-    --master_port=29500 \
-    ./run_pretraining_ddp_b2b.py \
+torchrun --nproc_per_node $NUM_GPUS_PER_NODE --nnodes $NUM_NODES --node_rank $NODE_RANK --master_addr $MASTER_ADDR --master_port=29500 run_pretraining_ddp_b2b.py --batch_size 3 --fp16

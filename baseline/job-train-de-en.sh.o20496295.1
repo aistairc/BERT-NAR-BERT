@@ -1,0 +1,161 @@
+NUM_NODES=2
+NUM_GPUS_PER_NODE=4
+OMP_NUM_THREADS=1
+MASTER_ADDR=g0220
+NODE_RANK=0
+Total GPUS: 8
+Traceback (most recent call last):
+Traceback (most recent call last):
+  File "./baseline-train-translation.py", line 39, in <module>
+  File "./baseline-train-translation.py", line 39, in <module>
+Traceback (most recent call last):
+  File "./baseline-train-translation.py", line 39, in <module>
+    train_data = datasets.load_dataset("wmt14", "de-en", split="train[:50%]")
+  File "/home/aae15163zd/venv/pytorch/lib/python3.8/site-packages/datasets/load.py", line 1734, in load_dataset
+    train_data = datasets.load_dataset("wmt14", "de-en", split="train[:50%]")
+  File "/home/aae15163zd/venv/pytorch/lib/python3.8/site-packages/datasets/load.py", line 1734, in load_dataset
+    train_data = datasets.load_dataset("wmt14", "de-en", split="train[:50%]")
+  File "/home/aae15163zd/venv/pytorch/lib/python3.8/site-packages/datasets/load.py", line 1734, in load_dataset
+    builder_instance = load_dataset_builder(
+  File "/home/aae15163zd/venv/pytorch/lib/python3.8/site-packages/datasets/load.py", line 1492, in load_dataset_builder
+    builder_instance = load_dataset_builder(
+  File "/home/aae15163zd/venv/pytorch/lib/python3.8/site-packages/datasets/load.py", line 1492, in load_dataset_builder
+    dataset_module = dataset_module_factory(
+  File "/home/aae15163zd/venv/pytorch/lib/python3.8/site-packages/datasets/load.py", line 1216, in dataset_module_factory
+    raise e1 from None
+  File "/home/aae15163zd/venv/pytorch/lib/python3.8/site-packages/datasets/load.py", line 1187, in dataset_module_factory
+    dataset_module = dataset_module_factory(
+  File "/home/aae15163zd/venv/pytorch/lib/python3.8/site-packages/datasets/load.py", line 1216, in dataset_module_factory
+    return HubDatasetModuleFactoryWithScript(
+  File "/home/aae15163zd/venv/pytorch/lib/python3.8/site-packages/datasets/load.py", line 902, in get_module
+    raise e1 from None
+  File "/home/aae15163zd/venv/pytorch/lib/python3.8/site-packages/datasets/load.py", line 1187, in dataset_module_factory
+    local_path = self.download_loading_script()
+  File "/home/aae15163zd/venv/pytorch/lib/python3.8/site-packages/datasets/load.py", line 870, in download_loading_script
+    return cached_path(file_path, download_config=download_config)
+  File "/home/aae15163zd/venv/pytorch/lib/python3.8/site-packages/datasets/utils/file_utils.py", line 211, in cached_path
+    builder_instance = load_dataset_builder(
+  File "/home/aae15163zd/venv/pytorch/lib/python3.8/site-packages/datasets/load.py", line 1492, in load_dataset_builder
+Traceback (most recent call last):
+  File "./baseline-train-translation.py", line 39, in <module>
+    dataset_module = dataset_module_factory(
+  File "/home/aae15163zd/venv/pytorch/lib/python3.8/site-packages/datasets/load.py", line 1216, in dataset_module_factory
+    train_data = datasets.load_dataset("wmt14", "de-en", split="train[:50%]")
+  File "/home/aae15163zd/venv/pytorch/lib/python3.8/site-packages/datasets/load.py", line 1734, in load_dataset
+    raise e1 from None
+  File "/home/aae15163zd/venv/pytorch/lib/python3.8/site-packages/datasets/load.py", line 1187, in dataset_module_factory
+    builder_instance = load_dataset_builder(
+  File "/home/aae15163zd/venv/pytorch/lib/python3.8/site-packages/datasets/load.py", line 1492, in load_dataset_builder
+    return HubDatasetModuleFactoryWithScript(
+  File "/home/aae15163zd/venv/pytorch/lib/python3.8/site-packages/datasets/load.py", line 902, in get_module
+    local_path = self.download_loading_script()
+  File "/home/aae15163zd/venv/pytorch/lib/python3.8/site-packages/datasets/load.py", line 870, in download_loading_script
+    dataset_module = dataset_module_factory(
+  File "/home/aae15163zd/venv/pytorch/lib/python3.8/site-packages/datasets/load.py", line 1216, in dataset_module_factory
+    return cached_path(file_path, download_config=download_config)
+  File "/home/aae15163zd/venv/pytorch/lib/python3.8/site-packages/datasets/utils/file_utils.py", line 211, in cached_path
+    output_path = ExtractManager(cache_dir=download_config.cache_dir).extract(
+  File "/home/aae15163zd/venv/pytorch/lib/python3.8/site-packages/datasets/utils/extract.py", line 42, in extract
+    raise e1 from None
+  File "/home/aae15163zd/venv/pytorch/lib/python3.8/site-packages/datasets/load.py", line 1187, in dataset_module_factory
+    output_path = ExtractManager(cache_dir=download_config.cache_dir).extract(
+  File "/home/aae15163zd/venv/pytorch/lib/python3.8/site-packages/datasets/utils/extract.py", line 42, in extract
+    return HubDatasetModuleFactoryWithScript(
+  File "/home/aae15163zd/venv/pytorch/lib/python3.8/site-packages/datasets/load.py", line 902, in get_module
+    extractor_format = self.extractor.infer_extractor_format(input_path)
+  File "/home/aae15163zd/venv/pytorch/lib/python3.8/site-packages/datasets/utils/extract.py", line 287, in infer_extractor_format
+    local_path = self.download_loading_script()
+  File "/home/aae15163zd/venv/pytorch/lib/python3.8/site-packages/datasets/load.py", line 870, in download_loading_script
+    extractor_format = self.extractor.infer_extractor_format(input_path)
+  File "/home/aae15163zd/venv/pytorch/lib/python3.8/site-packages/datasets/utils/extract.py", line 287, in infer_extractor_format
+    return cached_path(file_path, download_config=download_config)
+  File "/home/aae15163zd/venv/pytorch/lib/python3.8/site-packages/datasets/utils/file_utils.py", line 211, in cached_path
+    if extractor.is_extractable(path, magic_number=magic_number):
+  File "/home/aae15163zd/venv/pytorch/lib/python3.8/site-packages/datasets/utils/extract.py", line 84, in is_extractable
+    return tarfile.is_tarfile(path)
+  File "/apps/centos7/python/3.8.13_gcc9.3.0/lib/python3.8/tarfile.py", line 2471, in is_tarfile
+    return HubDatasetModuleFactoryWithScript(
+  File "/home/aae15163zd/venv/pytorch/lib/python3.8/site-packages/datasets/load.py", line 902, in get_module
+    output_path = ExtractManager(cache_dir=download_config.cache_dir).extract(
+  File "/home/aae15163zd/venv/pytorch/lib/python3.8/site-packages/datasets/utils/extract.py", line 42, in extract
+    if extractor.is_extractable(path, magic_number=magic_number):
+  File "/home/aae15163zd/venv/pytorch/lib/python3.8/site-packages/datasets/utils/extract.py", line 84, in is_extractable
+        local_path = self.download_loading_script()return tarfile.is_tarfile(path)
+
+  File "/home/aae15163zd/venv/pytorch/lib/python3.8/site-packages/datasets/load.py", line 870, in download_loading_script
+  File "/apps/centos7/python/3.8.13_gcc9.3.0/lib/python3.8/tarfile.py", line 2471, in is_tarfile
+    extractor_format = self.extractor.infer_extractor_format(input_path)
+  File "/home/aae15163zd/venv/pytorch/lib/python3.8/site-packages/datasets/utils/extract.py", line 287, in infer_extractor_format
+    return cached_path(file_path, download_config=download_config)
+  File "/home/aae15163zd/venv/pytorch/lib/python3.8/site-packages/datasets/utils/file_utils.py", line 211, in cached_path
+    if extractor.is_extractable(path, magic_number=magic_number):
+  File "/home/aae15163zd/venv/pytorch/lib/python3.8/site-packages/datasets/utils/extract.py", line 84, in is_extractable
+    output_path = ExtractManager(cache_dir=download_config.cache_dir).extract(
+  File "/home/aae15163zd/venv/pytorch/lib/python3.8/site-packages/datasets/utils/extract.py", line 42, in extract
+    return tarfile.is_tarfile(path)
+  File "/apps/centos7/python/3.8.13_gcc9.3.0/lib/python3.8/tarfile.py", line 2471, in is_tarfile
+    t = open(name)
+  File "/apps/centos7/python/3.8.13_gcc9.3.0/lib/python3.8/tarfile.py", line 1603, in open
+    t = open(name)
+  File "/apps/centos7/python/3.8.13_gcc9.3.0/lib/python3.8/tarfile.py", line 1603, in open
+    return func(name, "r", fileobj, **kwargs)
+  File "/apps/centos7/python/3.8.13_gcc9.3.0/lib/python3.8/tarfile.py", line 1667, in gzopen
+    return func(name, "r", fileobj, **kwargs)
+  File "/apps/centos7/python/3.8.13_gcc9.3.0/lib/python3.8/tarfile.py", line 1667, in gzopen
+    fileobj = GzipFile(name, mode + "b", compresslevel, fileobj)
+  File "/apps/centos7/python/3.8.13_gcc9.3.0/lib/python3.8/gzip.py", line 173, in __init__
+    fileobj = GzipFile(name, mode + "b", compresslevel, fileobj)
+  File "/apps/centos7/python/3.8.13_gcc9.3.0/lib/python3.8/gzip.py", line 173, in __init__
+    extractor_format = self.extractor.infer_extractor_format(input_path)
+  File "/home/aae15163zd/venv/pytorch/lib/python3.8/site-packages/datasets/utils/extract.py", line 287, in infer_extractor_format
+    t = open(name)
+  File "/apps/centos7/python/3.8.13_gcc9.3.0/lib/python3.8/tarfile.py", line 1603, in open
+    fileobj = self.myfileobj = builtins.open(filename, mode or 'rb')
+PermissionError: [Errno 13] Permission denied: '/groups/3/gac50543/migrated_from_SFA_GPFS/matiss/cache/huggingface/datasets/downloads/792fca3fbf589fa7f59360a13cce59f3f59be07dfd8c9e0d82c17cbada1c4c39.0b6ffb30f1ac5f7e651a7facb9af03de9026bab7e033d0e0f3d9bcafe4d65d89.py'
+    if extractor.is_extractable(path, magic_number=magic_number):
+  File "/home/aae15163zd/venv/pytorch/lib/python3.8/site-packages/datasets/utils/extract.py", line 84, in is_extractable
+    return tarfile.is_tarfile(path)
+    return func(name, "r", fileobj, **kwargs)  File "/apps/centos7/python/3.8.13_gcc9.3.0/lib/python3.8/tarfile.py", line 2471, in is_tarfile
+
+  File "/apps/centos7/python/3.8.13_gcc9.3.0/lib/python3.8/tarfile.py", line 1667, in gzopen
+    fileobj = self.myfileobj = builtins.open(filename, mode or 'rb')
+PermissionError: [Errno 13] Permission denied: '/groups/3/gac50543/migrated_from_SFA_GPFS/matiss/cache/huggingface/datasets/downloads/792fca3fbf589fa7f59360a13cce59f3f59be07dfd8c9e0d82c17cbada1c4c39.0b6ffb30f1ac5f7e651a7facb9af03de9026bab7e033d0e0f3d9bcafe4d65d89.py'
+    fileobj = GzipFile(name, mode + "b", compresslevel, fileobj)
+  File "/apps/centos7/python/3.8.13_gcc9.3.0/lib/python3.8/gzip.py", line 173, in __init__
+    fileobj = self.myfileobj = builtins.open(filename, mode or 'rb')
+PermissionError: [Errno 13] Permission denied: '/groups/3/gac50543/migrated_from_SFA_GPFS/matiss/cache/huggingface/datasets/downloads/792fca3fbf589fa7f59360a13cce59f3f59be07dfd8c9e0d82c17cbada1c4c39.0b6ffb30f1ac5f7e651a7facb9af03de9026bab7e033d0e0f3d9bcafe4d65d89.py'
+    t = open(name)
+  File "/apps/centos7/python/3.8.13_gcc9.3.0/lib/python3.8/tarfile.py", line 1603, in open
+    return func(name, "r", fileobj, **kwargs)
+  File "/apps/centos7/python/3.8.13_gcc9.3.0/lib/python3.8/tarfile.py", line 1667, in gzopen
+    fileobj = GzipFile(name, mode + "b", compresslevel, fileobj)
+  File "/apps/centos7/python/3.8.13_gcc9.3.0/lib/python3.8/gzip.py", line 173, in __init__
+    fileobj = self.myfileobj = builtins.open(filename, mode or 'rb')
+PermissionError: [Errno 13] Permission denied: '/groups/3/gac50543/migrated_from_SFA_GPFS/matiss/cache/huggingface/datasets/downloads/792fca3fbf589fa7f59360a13cce59f3f59be07dfd8c9e0d82c17cbada1c4c39.0b6ffb30f1ac5f7e651a7facb9af03de9026bab7e033d0e0f3d9bcafe4d65d89.py'
+Killing subprocess 245232
+Killing subprocess 245233
+Killing subprocess 245234Traceback (most recent call last):
+  File "/apps/centos7/python/3.8.13_gcc9.3.0/lib/python3.8/runpy.py", line 194, in _run_module_as_main
+    return _run_code(code, main_globals, None,
+  File "/apps/centos7/python/3.8.13_gcc9.3.0/lib/python3.8/runpy.py", line 87, in _run_code
+
+Killing subprocess 245235
+    exec(code, run_globals)
+  File "/home/aae15163zd/venv/pytorch/lib/python3.8/site-packages/torch/distributed/launch.py", line 340, in <module>
+    main()
+  File "/home/aae15163zd/venv/pytorch/lib/python3.8/site-packages/torch/distributed/launch.py", line 326, in main
+    sigkill_handler(signal.SIGTERM, None)  # not coming back
+  File "/home/aae15163zd/venv/pytorch/lib/python3.8/site-packages/torch/distributed/launch.py", line 301, in sigkill_handler
+    raise subprocess.CalledProcessError(returncode=last_return_code, cmd=cmd)
+subprocess.CalledProcessError: Command '['/home/aae15163zd/venv/pytorch/bin/python', '-u', './baseline-train-translation.py', '--local_rank=3']' returned non-zero exit status 1.
+--------------------------------------------------------------------------
+Primary job  terminated normally, but 1 process returned
+a non-zero exit code. Per user-direction, the job has been aborted.
+--------------------------------------------------------------------------
+--------------------------------------------------------------------------
+mpirun detected that one or more processes exited with non-zero status, thus causing
+the job to be terminated. The first process to do so was:
+
+  Process name: [[38458,1],0]
+  Exit code:    1
+--------------------------------------------------------------------------
