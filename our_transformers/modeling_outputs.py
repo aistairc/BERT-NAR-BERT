@@ -18,7 +18,7 @@ from typing import Optional, Tuple
 import torch
 
 #from .file_utils import ModelOutput
-from transformers.file_utils import ModelOutput
+from transformers.utils import ModelOutput
 
 
 @dataclass

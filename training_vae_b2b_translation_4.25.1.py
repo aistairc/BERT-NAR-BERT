@@ -1,4 +1,5 @@
-from pytorch_transformers_4.25.1 import (EncoderVaeDecoderModel, BertTokenizerFast, Seq2SeqTrainingArguments, Seq2SeqTrainer)
+from transformers import BertTokenizerFast
+from our_transformers import EncoderDecoderModel, EncoderVaeDecoderModel, Seq2SeqTrainer, Seq2SeqTrainingArguments
 import datasets
 import evaluate
 import numpy as np
@@ -6,7 +7,6 @@ from functools import partial
 import torch
 torch.cuda.empty_cache()
 import os
-os.environ["CUDA_VISIBLE_DEVICES"]="0"
 
 tokenizer = BertTokenizerFast.from_pretrained("bert-base-multilingual-uncased")
 batch_size=1  # change to 16 for full training
@@ -16,16 +16,16 @@ decoder_max_length=512
 def process_data_to_model_inputs(batch):
     """
     {'translation': [
-        [{   
-            'de': 'Wiederaufnahme der Sitzungsperiode', 
+        [{
+            'de': 'Wiederaufnahme der Sitzungsperiode',
             'en': 'Resumption of the session'
-        }, 
+        },
         {
-            'de': 'Ich bitte Sie, sich zu einer Schweigeminute zu erheben.', 
+            'de': 'Ich bitte Sie, sich zu einer Schweigeminute zu erheben.',
             'en': "Please rise, then, for this minute' s silence."
-        }, 
+        },
         {
-            'de': 'Frau Präsidentin, zur Geschäftsordnung.', 
+            'de': 'Frau Präsidentin, zur Geschäftsordnung.',
             'en': 'Madam President, on a point of order.'
         }]
     ]}

@@ -1,14 +1,14 @@
 #!/bin/bash
 
-#$ -l rt_G.small=1
+#$ -l rt_F=1
 #$ -l h_rt=4:00:00
-#$ -t 1-4
+#$ -t 1-2
 #$ -j y
 #$ -cwd
 #$ -v GPU_COMPUTE_MODE=1
 #$ -m ea
 
-source /home/aad13940yw/anaconda3/bin/activate b2b-gen
+#source /home/aad13940yw/anaconda3/bin/activate b2b-gen
 
 source /etc/profile.d/modules.sh
 
@@ -20,7 +20,8 @@ module load python/3.8/3.8.13
 module load openmpi/4.0.5
 module load cuda/11.2/11.2.2
 module load cudnn/8.1/8.1.1
-module load nccl/2.8/2.8.4-1 
+module load nccl/2.8/2.8.4-1
+source ~/venv/pytorch/bin/activate
 
 export PYTHONUNBUFFERED=1
 export PYTHONHASHSEED=0
@@ -68,5 +69,5 @@ mpirun -np 1 \
     --nproc_per_node=$NUM_GPUS_PER_NODE \
     --master_addr="$MASTER_ADDR" \
     --master_port=29500 \
-    ./training_vae_b2b_translation.py \
+    ./training_vae_b2b_translation_4.25.1.py
 

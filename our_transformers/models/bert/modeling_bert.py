@@ -27,8 +27,8 @@ import torch.utils.checkpoint
 from torch import nn
 from torch.nn import CrossEntropyLoss, MSELoss
 
-from transformers.activations import ACT2FN
-from transformers.file_utils import (
+from ...activations import ACT2FN
+from ...file_utils import (
     ModelOutput,
     add_code_sample_docstrings,
     add_start_docstrings,
@@ -46,13 +46,13 @@ from ...modeling_outputs import (
     SequenceClassifierOutput,
     TokenClassifierOutput,
 )
-from transformers.modeling_utils import (
+from ...modeling_utils import (
     PreTrainedModel,
     apply_chunking_to_forward,
     find_pruneable_heads_and_indices,
     prune_linear_layer,
 )
-from transformers.utils import logging
+from ...utils import logging
 from .configuration_bert import BertConfig
 import torch.nn.functional as F
 
@@ -1011,7 +1011,7 @@ class BertModel(BertPreTrainedModel):
          [-0.0835,  0.1145,  0.2986,  ...,  0.1449,  0.1421, -0.3260],
          [-0.0956,  0.1728,  0.2662,  ...,  0.0044,  0.1610, -0.2184],
          [-0.0591,  0.0799,  0.2137,  ...,  0.0030,  0.1982, -0.2381]]],
-       device='cuda:1', grad_fn=<NativeLayerNormBackward0>), past_key_values=None, hidden_states=None, attentions=None, cross_attentions=None) 
+       device='cuda:1', grad_fn=<NativeLayerNormBackward0>), past_key_values=None, hidden_states=None, attentions=None, cross_attentions=None)
         """
         sequence_output = encoder_outputs[0]
         pooled_output = self.pooler(sequence_output) if self.pooler is not None else None

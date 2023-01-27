@@ -25,12 +25,13 @@ import torch
 from torch import nn
 from torch.nn import CrossEntropyLoss
 
-from transformers.configuration_utils import PretrainedConfig
-from transformers.modeling_outputs import BaseModelOutput, Seq2SeqLMOutput
-from transformers.modeling_utils import PreTrainedModel
-from transformers.utils import add_start_docstrings, add_start_docstrings_to_model_forward, logging, replace_return_docstrings
-
-from transformers import AutoConfig, AutoModel, AutoModelForCausalLM, EncoderDecoderConfig
+from ...configuration_utils import PretrainedConfig
+from ...modeling_outputs import BaseModelOutput, Seq2SeqLMOutput
+from ...modeling_utils import PreTrainedModel
+from ...utils import add_start_docstrings, add_start_docstrings_to_model_forward, logging, replace_return_docstrings
+from ..auto.configuration_auto import AutoConfig
+from ..auto.modeling_auto import AutoModel, AutoModelForCausalLM
+from .configuration_encoder_decoder import EncoderDecoderConfig
 
 
 logger = logging.get_logger(__name__)
@@ -627,6 +628,8 @@ class EncoderDecoderModel(PreTrainedModel):
             **kwargs_decoder,
         )
 
+        print(decoder_outputs.loss.size())
+
         # Compute loss independent from decoder (as some shift the logits inside them)
         loss = None
         if labels is not None:
@@ -640,6 +643,8 @@ class EncoderDecoderModel(PreTrainedModel):
                 return (loss,) + decoder_outputs + encoder_outputs
             else:
                 return decoder_outputs + encoder_outputs
+
+        print(loss.size())
 
         return Seq2SeqLMOutput(
             loss=loss,

@@ -18,7 +18,7 @@
 import warnings
 from collections import OrderedDict
 
-from transformers.utils import logging
+from ...utils import logging
 #from ..albert.modeling_albert import (
 #    AlbertForMaskedLM,
 #    AlbertForMultipleChoice,

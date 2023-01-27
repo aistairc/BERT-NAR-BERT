@@ -118,6 +118,8 @@ def main():
                         help="random seed for initialization")
 
     # Training Schedule
+    parser.add_argument("--num_train_epochs", default=1.0, type=float,
+                        help="If > 0: set total number of training epochs to perform.")
     parser.add_argument("--max_steps", default=-1, type=int,
                         help="If > 0: set total number of training steps to perform. Override num_train_epochs.")
     parser.add_argument("--warmup_steps", default=0, type=int,
@@ -198,14 +200,14 @@ def main():
         per_device_train_batch_size=batch_size,
         per_device_eval_batch_size=batch_size,
         predict_with_generate=False,
-        logging_steps=2,  # set to 1000 for full training
-        save_steps=100,  # set to 500 for full training
-        eval_steps=10,  # set to 8000 for full training
+        logging_steps=args.logging_steps,  # set to 1000 for full training
+        save_steps=args.save_steps,  # set to 500 for full training
+        eval_steps=args.eval_steps,  # set to 8000 for full training
         warmup_steps=1,  # set to 2000 for full training
-        max_steps=100,  # delete for full training
+        num_train_epochs=args.num_train_epochs,  # delete for full training
         overwrite_output_dir=True,
         save_total_limit=1,
-        fp16=False,
+        fp16=args.fp16,
     )
 
 

@@ -18,13 +18,12 @@
 from typing import Optional
 
 from transformers import PretrainedConfig
-from transformers import PreTrainedModel
-from transformers.file_utils import add_start_docstrings, add_start_docstrings_to_model_forward, replace_return_docstrings
-from transformers.modeling_outputs import Seq2SeqLMOutput, MaskedLMOutput
-from transformers.utils import logging
+from ...modeling_utils import PreTrainedModel
+from ...file_utils import add_start_docstrings, add_start_docstrings_to_model_forward, replace_return_docstrings
+from ...modeling_outputs import Seq2SeqLMOutput, MaskedLMOutput, Seq2SeqLMLatentOutput
+from ...utils import logging
 
 from .configuration_encoder_vae_decoder import EncoderVaeDecoderConfig
-from ...modeling_outputs import Seq2SeqLMLatentOutput
 
 import torch
 import torch.nn as nn
