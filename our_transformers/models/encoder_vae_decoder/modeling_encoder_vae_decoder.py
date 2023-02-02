@@ -458,6 +458,9 @@ class EncoderVaeDecoderModel(PreTrainedModel):
                 **kwargs_encoder,
             )
 
+        #print(encoder_outputs)
+        #exit()
+
         encoder_hidden_states = encoder_outputs["last_hidden_state"]
 
         """ Latent Representation """
