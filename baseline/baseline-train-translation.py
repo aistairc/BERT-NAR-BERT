@@ -7,8 +7,7 @@ from transformers import EncoderDecoderConfig, EncoderDecoderModel, BertConfig
 from transformers import Seq2SeqTrainingArguments, Seq2SeqTrainer
 
 batch_size=2  # change to 16 for full training
-encoder_max_length=512
-decoder_max_length=512
+max_length=512 # 128 actually works better for MT
 
 #extract the translations as columns because the format in huggingface datasets for wmt14 is not practical
 def extract_features(examples):
@@ -19,10 +18,8 @@ def extract_features(examples):
 
 def process_data_to_model_inputs(batch):
   # tokenize the inputs and labels
-  # inputs = tokenizer(batch["en"], padding="max_length", truncation=True, max_length=encoder_max_length)
-  # outputs = tokenizer(batch["de"], padding="max_length", truncation=True, max_length=decoder_max_length)
-  inputs = tokenizer(batch["de"], padding="max_length", truncation=True, max_length=encoder_max_length)
-  outputs = tokenizer(batch["en"], padding="max_length", truncation=True, max_length=decoder_max_length)
+  inputs = tokenizer(batch["de"], padding="max_length", truncation=True, max_length=max_length)
+  outputs = tokenizer(batch["en"], padding="max_length", truncation=True, max_length=max_length)
 
   batch["input_ids"] = inputs.input_ids
   batch["attention_mask"] = inputs.attention_mask
@@ -36,8 +33,8 @@ def process_data_to_model_inputs(batch):
 
   return batch
 
-train_data = datasets.load_dataset("wmt14", "de-en", split="train[:50%]")
-val_data = datasets.load_dataset("wmt14", "de-en", split="validation[:50%]")
+train_data = datasets.load_dataset("wmt14", "de-en", split="train")
+val_data = datasets.load_dataset("wmt14", "de-en", split="validation")
 
 train_data = train_data.map(extract_features, batched=True, remove_columns=["translation"])
 val_data = val_data.map(extract_features, batched=True, remove_columns=["translation"])
@@ -57,14 +54,11 @@ def compute_metrics(pred):
     pred_str = tokenizer.batch_decode(pred_ids, skip_special_tokens=True)
     labels_ids[labels_ids == -100] = tokenizer.pad_token_id
     label_str = tokenizer.batch_decode(labels_ids, skip_special_tokens=True)
-    # label_str = [[item.split()] for item in label_str]
-    # pred_str = [item.split() for item in pred_str]
     bleu_output = bleu.compute(predictions=pred_str, references=label_str, max_order=4)
     return {"bleu4": round(np.mean(bleu_output["bleu"]), 4)}
     
 
 # only use 32 training examples for notebook - DELETE LINE FOR FULL TRAINING
-# train_data = train_data.select(range(100))
 
 train_data = train_data.map(
     process_data_to_model_inputs, 
@@ -78,7 +72,6 @@ train_data.set_format(
 
 
 # only use 16 training examples for notebook - DELETE LINE FOR FULL TRAINING
-# val_data = val_data.select(range(100))
 
 val_data = val_data.map(
     process_data_to_model_inputs, 
@@ -104,12 +97,11 @@ model.config.pad_token_id = tokenizer.pad_token_id
 
 # sensible parameters for beam search
 model.config.vocab_size = model.config.decoder.vocab_size
-model.config.max_length = 142
-model.config.min_length = 56
-model.config.no_repeat_ngram_size = 3
+model.config.max_length = 192
+model.config.min_length = 1
+model.config.no_repeat_ngram_size = 0
 model.config.early_stopping = True
-model.config.length_penalty = 2.0
-# model.config.num_beams = 1
+model.config.length_penalty = 1.0
 model.config.num_beams = 4
 
     
@@ -120,13 +112,14 @@ training_args = Seq2SeqTrainingArguments(
     per_device_train_batch_size=batch_size,
     per_device_eval_batch_size=batch_size,
     predict_with_generate=True,
-    logging_steps=300,  # set to 1000 for full training
-    save_steps=1000,  # set to 500 for full training
-    eval_steps=500,  # set to 8000 for full training
-    warmup_steps=200,  # set to 2000 for full training
+    logging_steps=1000,  # set to 1000 for full training
+    save_steps=2000,  # set to 500 for full training
+    eval_steps=2000,  # set to 8000 for full training
+    warmup_steps=1000,  # set to 2000 for full training
     # max_steps=100,  # delete for full training
     overwrite_output_dir=True,
     save_total_limit=1,
+    num_train_epochs=100.0, # seems like the default is only 3.0
     fp16=True, 
 )
 
