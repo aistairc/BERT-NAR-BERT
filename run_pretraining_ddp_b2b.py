@@ -201,12 +201,94 @@ def frange_cycle_zero_linear(n_iter, start=0.0, stop=1.0,  n_cycle=4, ratio_incr
     return L
 
 
+def save_checkpoint(model_vae, optimizer, global_step, args):
+    # Create output directory if needed
+    # Save model checkpoint
+    output_encoder_dir = os.path.join(args.output_dir, 'checkpoint-encoder-{}'.format(global_step))
+    output_decoder_dir = os.path.join(args.output_dir, 'checkpoint-decoder-{}'.format(global_step))
+    if not os.path.exists(output_encoder_dir) and args.local_rank in [-1, 0]:
+        os.makedirs(output_encoder_dir)
+    if not os.path.exists(output_decoder_dir) and args.local_rank in [-1, 0]:
+        os.makedirs(output_decoder_dir)
+
+    logger.info("Saving encoder model checkpoint to %s", output_encoder_dir)
+    logger.info("Saving decoder model checkpoint to %s", output_decoder_dir)
+    # Save a trained model, configuration and tokenizer using `save_pretrained()`.
+    # They can then be reloaded using `from_pretrained()`
+
+    model_encoder_to_save = model_vae.module.encoder if hasattr(model_vae,
+                                                                'module') else model_vae.encoder  # Take care of distributed/parallel training
+    model_decoder_to_save = model_vae.module.decoder if hasattr(model_vae,
+                                                                'module') else model_vae.decoder  # Take care of distributed/parallel training
+
+    # Good practice: save your training arguments together with the trained model
+    if args.use_philly:
+        save_solid = False
+        while not save_solid:
+            try:
+                model_encoder_to_save.save_pretrained(output_encoder_dir)
+                torch.save(args, os.path.join(output_encoder_dir, 'training_encoder_args.bin'))
+                save_solid = True
+            except:
+                pass
+    else:
+        model_encoder_to_save.save_pretrained(output_encoder_dir)
+        torch.save(args, os.path.join(output_encoder_dir, 'training_encoder_args.bin'))
+
+    if args.use_philly:
+        save_solid = False
+        while not save_solid:
+            try:
+                model_decoder_to_save.save_pretrained(output_decoder_dir)
+                torch.save(args, os.path.join(output_decoder_dir, 'training_decoder_args.bin'))
+                save_solid = True
+            except:
+                pass
+    else:
+        model_decoder_to_save.save_pretrained(output_decoder_dir)
+        torch.save(args, os.path.join(output_decoder_dir, 'training_encoder_args.bin'))
+
+    # save the full model and optmizer into a checkpoint
+    model_to_save = model_vae.module if hasattr(model_vae,
+                                                'module') else model_vae  # Take care of distributed/parallel training
+
+    checkpoint = {
+        'iter': global_step,
+        'model_state_dict': model_to_save.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'beta': model_to_save.args.beta,
+        'args': args
+    }
+
+    output_full_dir = os.path.join(args.output_dir, 'checkpoint-full-{}'.format(global_step))
+    if not os.path.exists(output_full_dir) and args.local_rank in [-1, 0]:
+        os.makedirs(output_full_dir)
+
+    logger.info("Start saving full model checkpoint to %s", output_full_dir)
+    if args.use_philly:
+        save_solid = False
+        n_save_attempts = 0
+        while not save_solid:
+            try:
+                n_save_attempts += 1
+                logger.info(f"Saving full checkpoint: {n_save_attempts} attempts made")
+                torch.save(checkpoint, os.path.join(output_full_dir, 'training.bin'))
+                logger.info("Saving full checkpoint to %s,", output_full_dir)
+                save_solid = True
+            except:
+                pass
+    else:
+        torch.save(checkpoint, os.path.join(output_full_dir, 'training.bin'))
+        logger.info("Saving full checkpoint to %s", output_full_dir)
+
+
 def train(args, train_data, model, tokenizer):
     """
     if args.local_rank in [-1, 0]:
         tb_writer = SummaryWriter()
     """
     print(train_data)
+    #exit()
 
     args.n_gpu = (ompi_size() if args.local_rank != -1 else 1)
     args.train_batch_size = args.per_gpu_train_batch_size * max(1, args.n_gpu)
@@ -298,6 +380,7 @@ def train(args, train_data, model, tokenizer):
         #train_data.reset()
 
         for step, batch in enumerate(train_data):
+            #print(batch)
             """
             if args.generation_model_type == "nag":
                 if args.use_different_model_type:
@@ -311,11 +394,11 @@ def train(args, train_data, model, tokenizer):
             tokenized_text1 = tokenized_text1.to(args.device)
             """
 
-            inputs = batch["input_ids"]
-            attention_mask = batch["attention_mask"]
-            decoder_input_ids = batch["decoder_input_ids"]
-            decoder_attention_mask = batch["decoder_attention_mask"]
-            labels = batch["labels"]
+            input_ids = batch["input_ids"].reshape(1, len(batch["input_ids"]))
+            attention_mask = batch["attention_mask"].reshape(1, len(batch["attention_mask"]))
+            decoder_input_ids = batch["decoder_input_ids"]. reshape(1, len(batch["decoder_input_ids"]))
+            decoder_attention_mask = batch["decoder_attention_mask"].reshape(1, len(batch["decoder_attention_mask"]))
+            labels = batch["labels"].reshape(1, len(batch["labels"]))
 
             """ For GPU Training """
             #inputs = inputs.to(args.device)
@@ -339,15 +422,11 @@ def train(args, train_data, model, tokenizer):
             if args.use_deterministic_connect:
                 model.config.args.fb_mode = 2
 
-            #loss_rec, loss_kl, loss, encoder_time, decoder_time = model(inputs, labels)
-            loss_rec, loss_kl, loss = model(inputs,
-                                            attention_mask,
-                                            decoder_input_ids,
-                                            decoder_attention_mask,
-                                            labels)
-
-            loss_rec = loss_rec.mean()  # mean() to average on multi-gpu parallel training
-            loss_kl = loss_kl.mean()
+            outputs = model(input_ids, attention_mask, decoder_input_ids, decoder_attention_mask, labels)
+            loss_rec = outputs[0]
+            loss_kl = torch.mean(outputs["loss_kl"])
+            loss = loss_rec + 1.0 * loss_kl
+            #loss_rec = loss_rec.mean()  # mean() to average on multi-gpu parallel training
             loss = loss.mean()
 
             if args.use_philly:
@@ -358,7 +437,6 @@ def train(args, train_data, model, tokenizer):
                                        step, n_iter_per_file, model.module.args.beta, loss_rec, loss_kl,
                                        torch.exp(loss_rec.clone().detach())))
                     logger.info("PROGRESS: {}%".format(round(100 * global_step * args.gradient_accumulation_steps / n_iter, 4)))
-                    logger.info("EVALERR: {}%".format(loss_rec))
                     logger.info("Learning_Rate: {}".format(scheduler.get_last_lr()[0]))
 
 
@@ -522,7 +600,7 @@ def main():
     parser.add_argument('--dist-backend', default='nccl', type=str, help='distributed backend')
     parser.add_argument('--port', type=str, default=get_master_port(), help="Port")
     """ Objective Function """
-    parser.add_argument("--do_train", default="huggingface_trainer", type=str,
+    parser.add_argument("--do_train", default="custom_trainer", type=str,
                         help="huggingface_trainer / custom_trainer")
     parser.add_argument("--do_eval", action='store_true',
                         help="Whether to run eval on the dev set.")
@@ -667,20 +745,12 @@ def main():
         trainer.train()
 
     elif args.do_train == "custom_trainer":
+        #train(args, train_data, model, tokenizer)
         global_step, tr_loss, optimizer = train(args, train_data, model, tokenizer)
-        print("global_step: {}, tr_loss: {}, optimizer: {}".format(global_step, tr_loss, optimizer))
+        #print("global_step: {}, tr_loss: {}, optimizer: {}".format(global_step, tr_loss, optimizer))
         #print("global_step: {}, tr_loss: {}, optimizer: {}, encoder_time: {}, decoder_time: {}".format(
         #    global_step, tr_loss, optimizer, encoder_time, decoder_time))
-        """
-        set_seed(args)  # Added here for reproducibility (even between python 2 and 3)
-        for epoch in range(int(args.num_train_epochs)):  # num_train_epochs_iterator:
-            print("epoch: ", epoch)
-            #train_data.reset()
-            for step, batch in enumerate(train_data):
-                print(step)
-                print(batch)
-                exit()
-        """
+
     if args.do_eval:
         pass
 

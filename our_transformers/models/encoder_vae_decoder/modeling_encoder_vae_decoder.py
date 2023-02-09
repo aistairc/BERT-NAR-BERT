@@ -446,6 +446,16 @@ class EncoderVaeDecoderModel(PreTrainedModel):
             argument[len("decoder_") :]: value for argument, value in kwargs.items() if argument.startswith("decoder_")
         }
 
+        #print(input_ids)
+        #print(encoder_outputs)
+        #print(attention_mask)
+        #print(decoder_input_ids)
+        #print(decoder_attention_mask)
+        #print(labels)
+        #exit()
+
+        encoder_outputs = None
+
         """ Invoke Encoder """
         if encoder_outputs is None:
             encoder_outputs = self.encoder(
@@ -458,13 +468,15 @@ class EncoderVaeDecoderModel(PreTrainedModel):
                 **kwargs_encoder,
             )
 
-        #print(encoder_outputs)
+        #print(encoder_outputs, len(encoder_outputs[0]))
         #exit()
 
         encoder_hidden_states = encoder_outputs["last_hidden_state"]
+        #encoder_hidden_states = encoder_outputs[0]
 
         """ Latent Representation """
         pooled_hidden_fea = encoder_outputs["pooler_output"]
+        #pooled_hidden_fea = encoder_outputs[0]
         mu, logvar = self.linear(pooled_hidden_fea).chunk(2, -1)
         latent_z = self.reparameterize(mu, logvar, nsamples=1)
         latent_z = latent_z.squeeze(1)
@@ -514,6 +526,7 @@ class EncoderVaeDecoderModel(PreTrainedModel):
 
             return MaskedLMOutput(
                 loss=decoder_outputs.loss,
+                loss_kl=loss_kl,
                 logits=decoder_outputs.logits,
                 hidden_states=decoder_outputs.hidden_states,
                 attentions=decoder_outputs.attentions,
