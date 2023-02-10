@@ -7,7 +7,7 @@ from nar_transformers import EncoderDecoderConfig, EncoderDecoderModel, BertConf
 from nar_transformers import Seq2SeqTrainingArguments, Seq2SeqTrainer
 
 
-batch_size=32  # change to 16 for full training
+batch_size=16  # change to 16 for full training
 max_length=128 # 128 actually works better for MT
 
 #extract the translations as columns because the format in huggingface datasets for wmt14 is not practical
@@ -33,7 +33,7 @@ def process_data_to_model_inputs(batch):
 
     return batch
 
-train_data = datasets.load_dataset("wmt14", "de-en", split="train[:1%]")
+train_data = datasets.load_dataset("wmt14", "de-en", split="train[:30%]")
 val_data = datasets.load_dataset("wmt14", "de-en", split="validation")
 
 train_data = train_data.map(extract_features, batched=True, remove_columns=["translation"])
@@ -90,8 +90,8 @@ config = EncoderDecoderConfig.from_encoder_decoder_configs(encoder_config, decod
 
 model = EncoderDecoderModel(config=config)
 
-model.decoder.config.is_decoder = False
-model.config.do_length_prediction = True
+#model.decoder.config.is_decoder = False
+model.config.do_length_prediction = False
 
 # set special tokens
 model.config.decoder_start_token_id = tokenizer.bos_token_id
@@ -118,7 +118,7 @@ training_args = Seq2SeqTrainingArguments(
     predict_with_generate=True,
     logging_steps=100,  # set to 1000 for full training
     # save_steps=500,  # set to 500 for full training
-    eval_steps=50,  # set to 8000 for full training
+    eval_steps=500,  # set to 8000 for full training
     warmup_steps=100,  # set to 2000 for full training
     # max_steps=100,  # delete for full training
     num_train_epochs=1.0, # seems like the default is only 3.0

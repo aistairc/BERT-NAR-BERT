@@ -199,9 +199,9 @@ class LengthConverter(nn.Module):
         if False:
             logits = - torch.pow(arange_z - mu[:, :, None], 2) / (2. * self.sigma ** 2)
         else:
-            distance = torch.clamp(arange_z - mu[:, :, None], -100, 100)
+            distance = torch.clamp(arange_z - mu[:, :, None], -10, 10)
             logits = - torch.pow(2, distance) / (2. * self.sigma ** 2)
-        logits = logits * z_mask[:, None, :] - 99. * (1 - z_mask[:, None, :])
+        logits = logits * z_mask[:, None, :] - 9. * (1 - z_mask[:, None, :])
         weight = torch.softmax(logits, 2)
         z_prime = (z[:, None, :, :] * weight[:, :, :, None]).sum(2)
         if True:
@@ -697,7 +697,8 @@ class EncoderDecoderModel(PreTrainedModel):
             mean_z = ((z + prior_states) * z_mask[:, :, None]).sum(1) / z_mask.sum(1)[:, None]
             logits = self.length_predictor(mean_z)
             delta_pred = logits.argmax(-1) - 5
-            length_loss = nn.functional.cross_entropy(logits, delta_gold, reduction="mean")
+            length_loss_fct = CrossEntropyLoss()
+            length_loss =length_loss_fct(logits, delta_gold)
             #length_acc = (logits.argmax(-1) == delta_gold).float().mean()
 
             # Converting
@@ -750,7 +751,9 @@ class EncoderDecoderModel(PreTrainedModel):
 
             # Adding length loss
             if self.config.do_length_prediction:
+                #print('REC_LOSS', loss.item(), 'LENGTH_LOSS', length_loss.item())
                 loss += length_loss
+                #loss = 0.1*loss + length_loss
 
         if not return_dict:
             if loss is not None:
