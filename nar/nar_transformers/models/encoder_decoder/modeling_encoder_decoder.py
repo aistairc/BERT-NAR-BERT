@@ -165,15 +165,25 @@ def shift_tokens_right(input_ids: torch.Tensor, pad_token_id: int, decoder_start
 
     return shifted_input_ids
 
+class RMSELoss(nn.Module):
+    def __init__(self, eps=1e-10):
+        super().__init__()
+        self.mse = nn.MSELoss()
+        self.eps = eps
+    def forward(self, yhat, y):
+        loss = torch.sqrt(self.mse(yhat, y.float()) + self.eps)
+        return loss
+
 # Length Transformer
 class LengthConverter(nn.Module):
     """
     Implementation of Length Transformation.
     """
 
-    def __init__(self):
+    def __init__(self, length_range):
         super(LengthConverter, self).__init__()
         self.sigma = nn.Parameter(torch.tensor(1., dtype=torch.float))
+        self.length_range = length_range
 
     def forward(self, z, ls, z_mask):
         """
@@ -196,12 +206,12 @@ class LengthConverter(nn.Module):
             arange_l = arange_l.half()
             mu = mu.half()
             arange_z = arange_z.half()
-        if False:
+        if True:
             logits = - torch.pow(arange_z - mu[:, :, None], 2) / (2. * self.sigma ** 2)
         else:
-            distance = torch.clamp(arange_z - mu[:, :, None], -10, 10)
+            distance = torch.clamp(arange_z - mu[:, :, None], -sefl.length_range, self.length_range)
             logits = - torch.pow(2, distance) / (2. * self.sigma ** 2)
-        logits = logits * z_mask[:, None, :] - 9. * (1 - z_mask[:, None, :])
+        logits = logits * z_mask[:, None, :] - (self.length_range-1) * (1 - z_mask[:, None, :])
         weight = torch.softmax(logits, 2)
         z_prime = (z[:, None, :, :] * weight[:, :, :, None]).sum(2)
         if True:
@@ -209,6 +219,7 @@ class LengthConverter(nn.Module):
         else:
             z_prime_mask = (arange_l < ls[:, None].float()).float()
         z_prime = z_prime * z_prime_mask[:, :, None]
+
         return z_prime, z_prime_mask
 
 
@@ -269,9 +280,19 @@ class EncoderDecoderModel(PreTrainedModel):
         self.decoder = decoder
         #self.linear = nn.Linear(config.encoder.hidden_size, 2 * config.encoder.hidden_size, bias=False)
         self.linear = nn.Linear(config.encoder.hidden_size, config.encoder.hidden_size, bias=False)
+        self.linear_emb = nn.Linear(config.encoder.hidden_size, config.encoder.hidden_size, bias=False)
 
-        self.length_predictor = nn.Linear(config.encoder.hidden_size, 10)
-        self.length_converter = LengthConverter()
+        # Configuration for length prediction
+        self.length_range = 10
+        self.mode = 'regression'
+
+        if self.mode == 'regression':
+            self.length_predictor = nn.Linear(config.encoder.hidden_size, 1, bias=False)
+        elif self.mode == 'classification':
+            self.length_predictor = nn.Linear(config.encoder.hidden_size, self.length_range)
+        else:
+            raise NotImplementedError()
+        self.length_converter = LengthConverter(self.length_range)
 
         if self.encoder.config.to_dict() != self.config.encoder.to_dict():
             logger.warning(
@@ -683,31 +704,51 @@ class EncoderDecoderModel(PreTrainedModel):
 
         encoder_hidden_states = encoder_outputs[0]
         z = self.linear(encoder_hidden_states)
+        #z = encoder_hidden_states
 
         if self.config.do_length_prediction:
             bs, seq_len = input_ids.shape
             prior_states = encoder_hidden_states
             x_mask = attention_mask
             z_mask = attention_mask
-            y_mask = decoder_attention_mask
-
-            # Computing length prediction loss
-            y_lens = y_mask.sum(1) - 1
-            delta_gold = (y_lens - z_mask.sum(1) + 5.).long().clamp(0, 9)
-            mean_z = ((z + prior_states) * z_mask[:, :, None]).sum(1) / z_mask.sum(1)[:, None]
-            logits = self.length_predictor(mean_z)
-            delta_pred = logits.argmax(-1) - 5
-            length_loss_fct = CrossEntropyLoss()
-            length_loss =length_loss_fct(logits, delta_gold)
-            #length_acc = (logits.argmax(-1) == delta_gold).float().mean()
-
-            # Converting
             z_lens = z_mask.sum(1) - 1
-            target_lens = z_lens + delta_pred + 1
-            latent_z, _ = self.length_converter(z.clone(), target_lens, z_mask)
+
+            mean_z = ((z + prior_states) * z_mask[:, :, None]).sum(1) / z_mask.sum(1)[:, None]
+
+            if self.mode == 'regression':
+                logits = self.length_predictor(mean_z)
+                delta_pred = (logits.squeeze(-1) - self.length_range//2).long().clamp(0, self.length_range-1)
+            elif self.mode == 'classification':
+                logits = self.length_predictor(mean_z)
+                delta_pred = logits.argmax(-1) - self.length_range//2
+
+            # For training
+            if decoder_attention_mask is not None:
+                y_mask = decoder_attention_mask
+
+                # Computing length prediction loss
+                y_lens = y_mask.sum(1) - 1
+                delta_gold = (y_lens - z_mask.sum(1) + self.length_range//2).long().clamp(0, self.length_range-1)
+                if self.mode == 'regression':
+                    length_loss_fct = nn.L1Loss()
+                    #length_loss_fct = RMSELoss()
+                elif self.mode == 'classification':
+                    length_loss_fct = CrossEntropyLoss()
+                length_loss =length_loss_fct(logits, delta_gold)
+
+                target_lens = y_lens + 1
+
+            # For inference
+            else:
+                target_lens = z_lens + delta_pred + 1
+                length_loss = 0
+
+            # Length Converting
+            latent_z, _ = self.length_converter(z, target_lens, z_mask)
             #arange = torch.arange(target_lens.max().long())
             arange = torch.arange(seq_len).cuda()
             target_mask = (arange[None, :].repeat(z.size(0), 1) < target_lens[:, None]).long()
+
         else:
             latent_z = z
             target_mask = attention_mask # if do not adopt length prediction, input length is directly used for target length
@@ -727,7 +768,6 @@ class EncoderDecoderModel(PreTrainedModel):
         # Decode
         decoder_outputs = self.decoder(
             input_ids=decoder_input_ids,
-            #attention_mask=decoder_attention_mask,
             attention_mask=target_mask,
             encoder_hidden_states=encoder_hidden_states,
             encoder_attention_mask=attention_mask,
@@ -751,9 +791,7 @@ class EncoderDecoderModel(PreTrainedModel):
 
             # Adding length loss
             if self.config.do_length_prediction:
-                #print('REC_LOSS', loss.item(), 'LENGTH_LOSS', length_loss.item())
                 loss += length_loss
-                #loss = 0.1*loss + length_loss
 
         if not return_dict:
             if loss is not None:

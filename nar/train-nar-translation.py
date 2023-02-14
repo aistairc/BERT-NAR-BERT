@@ -6,6 +6,8 @@ from nar_transformers import BertTokenizerFast
 from nar_transformers import EncoderDecoderConfig, EncoderDecoderModel, BertConfig
 from nar_transformers import Seq2SeqTrainingArguments, Seq2SeqTrainer
 
+#import wandb
+
 
 batch_size=16  # change to 16 for full training
 max_length=128 # 128 actually works better for MT
@@ -80,7 +82,8 @@ val_data = val_data.map(
     remove_columns=["en", "de",]
 )
 val_data.set_format(
-    type="torch", columns=["input_ids", "attention_mask", "decoder_attention_mask", "labels"],
+    #type="torch", columns=["input_ids", "attention_mask", "decoder_attention_mask", "labels"],
+    type="torch", columns=["input_ids", "attention_mask", "labels"],
 )
 
 
@@ -90,8 +93,7 @@ config = EncoderDecoderConfig.from_encoder_decoder_configs(encoder_config, decod
 
 model = EncoderDecoderModel(config=config)
 
-#model.decoder.config.is_decoder = False
-model.config.do_length_prediction = False
+model.config.do_length_prediction = True
 
 # set special tokens
 model.config.decoder_start_token_id = tokenizer.bos_token_id
@@ -110,16 +112,17 @@ model.config.num_beam_groups = 0
 
 # set training arguments - these params are not really tuned, feel free to change
 training_args = Seq2SeqTrainingArguments(
-    output_dir="/groups/gac50543/migrated_from_SFA_GPFS/asada/translation/nar",
+    output_dir="/groups/gac50543/migrated_from_SFA_GPFS/asada/translation/reg-range10-constWarmup1k",
     evaluation_strategy="steps",
     save_strategy="epoch",
     per_device_train_batch_size=batch_size,
     per_device_eval_batch_size=batch_size,
     predict_with_generate=True,
-    logging_steps=100,  # set to 1000 for full training
+    logging_steps=500,  # set to 1000 for full training
     # save_steps=500,  # set to 500 for full training
     eval_steps=500,  # set to 8000 for full training
-    warmup_steps=100,  # set to 2000 for full training
+    warmup_steps=1000,  # set to 2000 for full training
+    lr_scheduler_type="constant_with_warmup",
     # max_steps=100,  # delete for full training
     num_train_epochs=1.0, # seems like the default is only 3.0
     overwrite_output_dir=True,
