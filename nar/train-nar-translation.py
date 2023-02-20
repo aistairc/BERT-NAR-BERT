@@ -97,7 +97,7 @@ model = EncoderDecoderModel.from_pretrained(
 
 model.config.do_length_prediction = True
 model.config.is_vae = True
-model.config.is_token_level_z = False
+model.config.is_token_level_z = True
 
 # set special tokens
 model.config.decoder_start_token_id = tokenizer.bos_token_id

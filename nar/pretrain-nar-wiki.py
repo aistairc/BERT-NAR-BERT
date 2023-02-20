@@ -71,7 +71,7 @@ model = EncoderDecoderModel(config=config)
 
 model.config.do_length_prediction = True
 model.config.is_vae = True
-model.config.is_token_level_z = False
+model.config.is_token_level_z = True
 
 # set special tokens
 model.config.decoder_start_token_id = tokenizer.bos_token_id
@@ -135,5 +135,5 @@ trainer = Seq2SeqTrainer(
     eval_dataset=val_data,
 )
 
-#trainer.train()
-trainer.train(resume_from_checkpoint=True)
+trainer.train()
+#trainer.train(resume_from_checkpoint=True)
