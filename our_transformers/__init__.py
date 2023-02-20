@@ -13,3 +13,4 @@ from .trainer_seq2seq import Seq2SeqTrainer
 # Training arguments
 from .training_args import TrainingArguments
 from .training_args_seq2seq import Seq2SeqTrainingArguments
+from .trainer_pt_utils import torch_distributed_zero_first

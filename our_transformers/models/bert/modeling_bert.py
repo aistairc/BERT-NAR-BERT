@@ -965,7 +965,7 @@ class BertModel(BertPreTrainedModel):
         # ourselves in which case we just need to make it broadcastable to all heads.
         extended_attention_mask: torch.Tensor = self.get_extended_attention_mask(attention_mask, input_shape, device)
         #extended_attention_mask: torch.Tensor = self.create_extended_attention_mask_for_decoder(attention_mask, input_shape, device)
-        print("encoder_attention", extended_attention_mask)
+        #print("encoder_attention", extended_attention_mask)
 
         # If a 2D or 3D attention mask is provided for the cross-attention
         # we need to make broadcastable to [batch_size, num_heads, seq_length, seq_length]
@@ -1686,11 +1686,11 @@ class BertLMHeadModel(BertPreTrainedModel):
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
         )
-        print("input_ids", input_ids)
+        #print("input_ids", input_ids)
         sequence_output = outputs[0]
         prediction_scores = self.cls(sequence_output)
         tokens_ids = torch.multinomial(F.softmax(prediction_scores[0], dim=-1), num_samples=1).flatten()
-        print("From_Decoder_Output", tokens_ids)
+        #print("From_Decoder_Output", tokens_ids)
         #exit()
         if labels is not None:
             # we are doing next-token prediction; shift prediction scores and input ids by one

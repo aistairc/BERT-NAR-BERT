@@ -186,6 +186,7 @@ class EncoderVaeDecoderModel(PreTrainedModel):
         self.encoder = encoder
         self.decoder = decoder
         self.linear = nn.Linear(768, 2 * 768, bias=False)
+
         assert (
             self.encoder.get_output_embeddings() is None
         ), "The encoder {} should not have a LM Head. Please use a model without LM Head"
@@ -220,6 +221,46 @@ class EncoderVaeDecoderModel(PreTrainedModel):
     #def get_linear(self):
         #return self.linear
 
+
+    def connect(self, bert_fea, nsamples=1):
+        """
+        Returns: Tensor1, Tensor2
+            Tensor1: the tensor latent z with shape [batch, nsamples, nz]
+            Tensor2: the tenor of KL for each x with shape [batch]
+        """
+
+        # (batch_size, nz)
+
+        mean, logvar = self.encoder.linear(bert_fea).chunk(2, -1)
+        # pdb.set_trace()
+        # mean, logvar = mean.squeeze(0), logvar.squeeze(0)
+
+        # (batch, nsamples, nz)
+        z = self.reparameterize(mean, logvar, nsamples)
+        KL = 0.5 * (mean.pow(2) + logvar.exp() - logvar - 1).sum(dim=1)
+
+        return z, KL
+
+    def connect_deterministic(self, bert_fea, nsamples=1):
+        """
+        Returns: Tensor1, Tensor2
+            Tensor1: the tensor latent z with shape [batch, nsamples, nz]
+            Tensor2: the tenor of KL for each x with shape [batch]
+        """
+
+        # (batch_size, nz)
+
+        mean, logvar = self.encoder.linear(bert_fea).chunk(2, -1)
+        # pdb.set_trace()
+        # mean, logvar = mean.squeeze(0), logvar.squeeze(0)
+
+        logvar.fill_(.0)
+        # (batch, nsamples, nz)
+        z = self.reparameterize(mean, logvar, nsamples)
+        KL = 0.5 * (mean.pow(2) + logvar.exp() - logvar - 1).sum(dim=1)
+
+        return z, KL
+
     def reparameterize(self, mu, logvar, nsamples=1):
         """sample from posterior Gaussian family
         Args:
@@ -235,9 +276,7 @@ class EncoderVaeDecoderModel(PreTrainedModel):
 
         mu_expd = mu.unsqueeze(1).expand(batch_size, nsamples, nz)
         std_expd = std.unsqueeze(1).expand(batch_size, nsamples, nz)
-
         eps = torch.zeros_like(std_expd).normal_()
-
         return mu_expd + torch.mul(eps, std_expd)
 
     @classmethod
@@ -368,7 +407,6 @@ class EncoderVaeDecoderModel(PreTrainedModel):
                     decoder_config.add_cross_attention = True
 
                 kwargs_decoder["config"] = decoder_config
-                #decoder_config.
             if kwargs_decoder["config"].is_decoder is False or kwargs_decoder["config"].add_cross_attention is False:
                 logger.warning(
                     f"Decoder model {decoder_pretrained_model_name_or_path} is not initialized as a decoder. In order to initialize {decoder_pretrained_model_name_or_path} as a decoder, make sure that the attributes `is_decoder` and `add_cross_attention` of `decoder_config` passed to `.from_encoder_decoder_pretrained(...)` are set to `True` or do not pass a `decoder_config` to `.from_encoder_decoder_pretrained(...)`"
@@ -378,13 +416,10 @@ class EncoderVaeDecoderModel(PreTrainedModel):
                 logger.info("AutoModelForMaskedLM", cls.is_nar)
                 print("AutoModelForMaskedLM", cls.is_nar)
                 decoder = AutoModelForMaskedLM.from_pretrained(decoder_pretrained_model_name_or_path, **kwargs_decoder)
-                #exit()
             else:
                 logger.info("AutoModelForCausalLM", cls.is_nar)
                 print("AutoModelForCausalLM", cls.is_nar)
                 decoder = AutoModelForCausalLM.from_pretrained(decoder_pretrained_model_name_or_path, **kwargs_decoder)
-                #exit()
-                #decoder = AutoModel.from_pretrained(decoder_pretrained_model_name_or_path, **kwargs_encoder)
 
         # instantiate config with corresponding kwargs
         config = EncoderVaeDecoderConfig.from_encoder_vae_decoder_configs(encoder.config, decoder.config, **kwargs)
@@ -446,14 +481,6 @@ class EncoderVaeDecoderModel(PreTrainedModel):
             argument[len("decoder_") :]: value for argument, value in kwargs.items() if argument.startswith("decoder_")
         }
 
-        #print(input_ids)
-        #print(encoder_outputs)
-        #print(attention_mask)
-        #print(decoder_input_ids)
-        #print(decoder_attention_mask)
-        #print(labels)
-        #exit()
-
         encoder_outputs = None
 
         """ Invoke Encoder """
@@ -468,24 +495,22 @@ class EncoderVaeDecoderModel(PreTrainedModel):
                 **kwargs_encoder,
             )
 
-        #print(encoder_outputs, len(encoder_outputs[0]))
-        #exit()
-
         encoder_hidden_states = encoder_outputs["last_hidden_state"]
-        #encoder_hidden_states = encoder_outputs[0]
 
-        """ Latent Representation """
+        """ Latent Representation 
         pooled_hidden_fea = encoder_outputs["pooler_output"]
-        #pooled_hidden_fea = encoder_outputs[0]
         mu, logvar = self.linear(pooled_hidden_fea).chunk(2, -1)
         latent_z = self.reparameterize(mu, logvar, nsamples=1)
         latent_z = latent_z.squeeze(1)
         loss_kl = 0.5 * (mu.pow(2) + logvar.exp() - logvar - 1)
-        #kl_mask = (loss_kl > self.args.dim_target_kl).float()
-        kl_mask = (loss_kl > 1.0).float()
+        kl_mask = (loss_kl > self.config.dim_target_kl).float()
+        #kl_mask = (loss_kl > 1.0).float()
+        loss_kl = (kl_mask * loss_kl).sum(dim=1)[0]
+        """
 
         if self.config.is_nar:
             """ Invoke Decoder: Passing parameters for BertForMaskedLM"""
+            """
             decoder_outputs = self.decoder(
                 input_ids=decoder_input_ids,
                 attention_mask=decoder_attention_mask,
@@ -496,11 +521,76 @@ class EncoderVaeDecoderModel(PreTrainedModel):
                 labels=labels,
                 output_attentions=output_attentions,
                 output_hidden_states=output_hidden_states,
-                #use_cache=use_cache,
-                #past_key_values=past_key_values,
                 return_dict=return_dict,
                 **kwargs_decoder,
             )
+            """
+            if self.config.fb_mode == 0:
+                #print("fb_mode: ", self.config.fb_mode)
+                pooled_hidden_fea = encoder_outputs["pooler_output"]
+                latent_z, loss_kl = self.connect(pooled_hidden_fea)
+                latent_z = latent_z.squeeze(1)
+                decoder_outputs = self.decoder(
+                    input_ids=decoder_input_ids,
+                    attention_mask=decoder_attention_mask,
+                    encoder_hidden_states=encoder_hidden_states,
+                    encoder_attention_mask=attention_mask,
+                    inputs_embeds=decoder_inputs_embeds,
+                    latent=latent_z,
+                    labels=labels,
+                    output_attentions=output_attentions,
+                    output_hidden_states=output_hidden_states,
+                    return_dict=return_dict,
+                    **kwargs_decoder,
+                )
+
+            elif self.config.fb_mode == 1:
+                #print("fb_mode: ", self.config.fb_mode)
+                pooled_hidden_fea = encoder_outputs["pooler_output"]
+                mu, logvar = self.linear(pooled_hidden_fea).chunk(2, -1)
+                latent_z = self.reparameterize(mu, logvar, nsamples=1)
+                latent_z = latent_z.squeeze(1)
+                loss_kl = 0.5 * (mu.pow(2) + logvar.exp() - logvar - 1)
+                #print("loss_kl", loss_kl)
+                kl_mask = (loss_kl > self.config.dim_target_kl).float()
+                #print("kl_mask", kl_mask)
+                loss_kl = (kl_mask * loss_kl).sum(dim=1)[0]
+                #print("final_loss_kl", loss_kl)
+                #exit()
+
+                decoder_outputs = self.decoder(
+                    input_ids=decoder_input_ids,
+                    attention_mask=decoder_attention_mask,
+                    encoder_hidden_states=encoder_hidden_states,
+                    encoder_attention_mask=attention_mask,
+                    inputs_embeds=decoder_inputs_embeds,
+                    latent=latent_z,
+                    labels=labels,
+                    output_attentions=output_attentions,
+                    output_hidden_states=output_hidden_states,
+                    return_dict=return_dict,
+                    **kwargs_decoder,
+                )
+
+            elif self.config.fb_mode == 2:
+                #print("fb_mode: ", self.config.fb_mode)
+                pooled_hidden_fea = encoder_outputs["pooler_output"]
+                latent_z, loss_kl = self.connect_deterministic(pooled_hidden_fea)
+                latent_z = latent_z.squeeze(1)
+
+                decoder_outputs = self.decoder(
+                    input_ids=decoder_input_ids,
+                    attention_mask=decoder_attention_mask,
+                    encoder_hidden_states=encoder_hidden_states,
+                    encoder_attention_mask=attention_mask,
+                    inputs_embeds=decoder_inputs_embeds,
+                    latent=latent_z,
+                    labels=labels,
+                    output_attentions=output_attentions,
+                    output_hidden_states=output_hidden_states,
+                    return_dict=return_dict,
+                    **kwargs_decoder,
+                )
 
         else:
             decoder_outputs = self.decoder(
@@ -521,16 +611,18 @@ class EncoderVaeDecoderModel(PreTrainedModel):
 
         if not return_dict:
             return decoder_outputs + encoder_outputs
-
+        #print("decoder_outputs", decoder_outputs)
+        #exit()
         if self.config.is_nar:
-
-            return MaskedLMOutput(
+            mlmo = MaskedLMOutput(
                 loss=decoder_outputs.loss,
+                #loss_kl=decoder_outputs.loss_kl,
                 loss_kl=loss_kl,
                 logits=decoder_outputs.logits,
                 hidden_states=decoder_outputs.hidden_states,
                 attentions=decoder_outputs.attentions,
             )
+            return mlmo
             """
             return MaskedLMOutput(
                 loss=decoder_outputs.loss,
@@ -557,7 +649,6 @@ class EncoderVaeDecoderModel(PreTrainedModel):
                 encoder_hidden_states=encoder_outputs.hidden_states,
                 encoder_attentions=encoder_outputs.attentions,
         )
-
 
     def prepare_inputs_for_generation(
         self, input_ids, past=None, attention_mask=None, use_cache=None, encoder_outputs=None, **kwargs

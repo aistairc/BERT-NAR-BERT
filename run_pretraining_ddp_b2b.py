@@ -288,7 +288,6 @@ def train(args, train_data, model, tokenizer):
         tb_writer = SummaryWriter()
     """
     print(train_data)
-    #exit()
 
     args.n_gpu = (ompi_size() if args.local_rank != -1 else 1)
     args.train_batch_size = args.per_gpu_train_batch_size * max(1, args.n_gpu)
@@ -471,7 +470,6 @@ def train(args, train_data, model, tokenizer):
                 # do not use scheduler for lamb
                 # if not args.use_lamb_optim:
                 scheduler.step()  # Update learning rate schedule
-                #scheduler.get_last_lr()
                 model.zero_grad()
 
                 global_step += 1
@@ -497,19 +495,6 @@ def train(args, train_data, model, tokenizer):
                         logger.info(
                             "Epoch: {}, Step: {}, Training loss: {:.2e} (avg {:.2e}), lr: {:.2e}".format(
                                 epoch, step, loss.item(), (tr_loss - logging_loss) / args.logging_steps, scheduler.get_last_lr()[0]))
-                    #logging_loss = tr_loss
-                    #dist_sum, dist_num = 0.0, 0
-
-                    # Log metrics
-                    """
-                    if args.local_rank == -1 and args.evaluate_during_training:  # Only evaluate when single GPU otherwise metrics may not average well
-                        results = evaluate(args, model, tokenizer)
-                        for key, value in results.items():
-                            tb_writer.add_scalar('eval_{}'.format(key), value, global_step)
-                    tb_writer.add_scalar('lr', scheduler.get_last_lr()[0], global_step)
-                    tb_writer.add_scalar('loss', (tr_loss - logging_loss) / args.logging_steps, global_step)
-                    tb_writer.add_scalar('ppl', torch.exp(torch.tensor(tr_loss - logging_loss) / args.logging_steps))
-                    """
                     logging_loss = tr_loss
                     dist_sum, dist_num = 0.0, 0
 
@@ -518,14 +503,10 @@ def train(args, train_data, model, tokenizer):
                     save_checkpoint(model, optimizer, global_step, args)
 
             if args.max_steps > 0 and global_step > args.max_steps:
-                # epoch_iterator.close()
                 break
-    """
-    if args.local_rank in [-1, 0]:
-        tb_writer.close()
-    """
 
     return global_step, tr_loss / global_step, optimizer
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -543,11 +524,11 @@ def main():
     parser.add_argument("--use_beta_schedule", action='store_true',
                         help="Use cyclical beta schedule for auto-encoders.")
     """ IO: Logging and Saving """
-    parser.add_argument('--logging_steps', type=int, default=500,
+    parser.add_argument('--logging_steps', type=int, default=10,
                         help="Log every X updates steps.")
-    parser.add_argument('--save_steps', type=int, default=500,
+    parser.add_argument('--save_steps', type=int, default=100,
                         help="Save checkpoint every X updates steps.")
-    parser.add_argument('--eval_steps', type=int, default=500,
+    parser.add_argument('--eval_steps', type=int, default=10,
                         help="Adjust save_steps for last steps to save more frequently.")
     parser.add_argument('--seed', type=int, default=99,
                         help="random seed for initialization")
@@ -556,7 +537,7 @@ def main():
                         help="Learning schedule, the percentage for the annealing stage.")
     parser.add_argument("--ratio_zero", default=0.25, type=float,
                         help="Learning schedule, the percentage for the pure auto-encoding stage.")
-    parser.add_argument("--fb_mode", default=0, type=int,
+    parser.add_argument("--fb_mode", default=1, type=int,
                         help="free bit training mode.")
     parser.add_argument("--dim_target_kl", default=3.0, type=float,
                         help="dim_target_kl free bit training mode.")
@@ -600,7 +581,7 @@ def main():
     parser.add_argument('--dist-backend', default='nccl', type=str, help='distributed backend')
     parser.add_argument('--port', type=str, default=get_master_port(), help="Port")
     """ Objective Function """
-    parser.add_argument("--do_train", default="custom_trainer", type=str,
+    parser.add_argument("--do_train", default="huggingface_trainer", type=str,
                         help="huggingface_trainer / custom_trainer")
     parser.add_argument("--do_eval", action='store_true',
                         help="Whether to run eval on the dev set.")
@@ -608,10 +589,13 @@ def main():
                         help="Whether to run vae model over the BERT-to-BERT.")
     parser.add_argument("--loading_dataset", default="huggingface", type=str,
                         help="huggingface / pre-processed ")
-    parser.add_argument("--transition_learning", default="ae2vae", type=str,
-                        help="ae / vae / ae2vae")
     parser.add_argument("--beta", type=float, default=1.0,
                         help="The weighting hyper-parameter of the KL term in VAE")
+    parser.add_argument('--loss_kl', action='store_true',
+                        help="Compute kl_loss/VAE loss for Encoder VAE Decoder Model")
+    parser.add_argument("--transition_learning", type=str, default='ae2vae', choices=["ae", "vae", 'ae2vae'],
+                        help="the type of annealing function in RecAdam. Default sigmoid")
+
     args = parser.parse_args()
     set_seed(args)
     args.dist_url = 'tcp://' + get_master_ip() + ':' + args.port
@@ -633,37 +617,12 @@ def main():
         ptvsd.enable_attach(address=(args.server_ip, args.server_port), redirect_output=True)
         ptvsd.wait_for_attach()
 
-    """
-    if args.distributed:  # Initializes the distributed backend which will take care of sychronizing nodes/GPUs
-        torch.distributed.init_process_group(
-            backend=args.dist_backend,
-            init_method=args.dist_url,
-            world_size=args.world_size,
-            rank=ompi_rank(),
-            group_name='mtorch')
-    logger.info(
-        "World Size is {}, Backend is {}, Init Method is {}, rank is {}".format(args.world_size, args.dist_backend,
-                                                                                args.dist_url, ompi_rank()))
-    """
-    """
-    gpus = list(gpu_indices())
-    args.n_gpu = len(gpus)
-    args.local_rank = ompi_rank()  # gpus[0]
-    torch.cuda.set_device(gpus[0])
-    device = torch.device("cuda", gpus[0])
-
-    args.device = device
-    logger.info('Rank {}, gpus: {}, get_rank: {}'.format(rank_node, gpus, torch.distributed.get_rank()))
-    logger.info(f'Local rank is {args.local_rank}, {rank_node}')
-
-    logger.warning("Process rank: %s, device: %s, n_gpu: %s, distributed training: %s, 16-bits training: %s",
-                   args.local_rank, device, args.n_gpu, bool(args.local_rank != -1), args.fp16)
-    """
-
     """ Initializing EncoderDecoder Model """
     EncoderVaeDecoderModel.is_nar = True
-    model = EncoderVaeDecoderModel.from_encoder_vae_decoder_pretrained("bert-base-cased", "bert-base-cased")
-    #model = EncoderDecoderModel.from_encoder_decoder_pretrained("bert-base-cased", "bert-base-cased")
+    if EncoderVaeDecoderModel.is_nar:
+        model = EncoderVaeDecoderModel.from_encoder_vae_decoder_pretrained("bert-base-cased", "bert-base-cased")
+    else:
+        model = EncoderDecoderModel.from_encoder_decoder_pretrained("bert-base-cased", "bert-base-cased")
 
     """ Tokenization Part """
     tokenizer.bos_token = tokenizer.cls_token
@@ -676,7 +635,10 @@ def main():
     model.config.eos_token_id = tokenizer.eos_token_id
     model.config.pad_token_id = tokenizer.pad_token_id
     model.config.unk_token_id = tokenizer.unk_token_id
-    model.config.is_decoder = False
+    if EncoderVaeDecoderModel.is_nar:
+        model.config.is_decoder = False
+    else:
+        model.config.is_decoder = True
     model.config.add_cross_attention = True
     model.config.decoder.add_cross_attention = True
     model.config.is_encoder_vae_decoder = True
@@ -685,6 +647,9 @@ def main():
     model.config.is_nar = True
     model.config.tie_encoder_decoder = True
     model.config.output_attentions = True
+    model.config.dim_target_kl = args.dim_target_kl
+    model.config.fb_mode = args.fb_mode
+    model.config.beta = args.beta
 
     """ sensible parameters for beam search """
     model.config.vocab_size = model.config.decoder.vocab_size
@@ -700,10 +665,10 @@ def main():
     batch_size = args.batch_size
     if args.loading_dataset == "huggingface":
         #train_data = datasets.load_dataset("wikipedia", "20200501.en", split="train[:10%]")
-        train_data = datasets.load_dataset("wikipedia", "20220301.simple", split="train[:1%]")
-        val_data = datasets.load_dataset("wikipedia", "20220301.simple", split="train[-1%:]")
+        train_data = datasets.load_dataset("wikipedia", "20220301.simple", split="train[:10%]")
+        val_data = datasets.load_dataset("wikipedia", "20220301.simple", split="train[-10%:]")
 
-        train_data = train_data.select(range(5))
+        train_data = train_data.select(range(1000))
         val_data = val_data.select(range(5))
 
         train_data = train_data.map(extract_features_wiki, batched=True, remove_columns=["title"])
@@ -713,7 +678,7 @@ def main():
         val_data = manage_dataset_to_specify_bert(val_data, batch_size=batch_size)
 
     elif args.loading_dataset == "pre-processed":
-        pass
+        print("Not Implemented Yet")
 
     if args.do_train == "huggingface_trainer":
         """ set training arguments - these params are not really tuned, feel free to change """
@@ -726,11 +691,16 @@ def main():
             logging_steps=args.logging_steps,  # set to 1000 for full training
             save_steps=args.save_steps,  # set to 500 for full training
             eval_steps=args.eval_steps,  # set to 8000 for full training
-            warmup_steps=1,  # set to 2000 for full training
+            warmup_steps=10,  # set to 2000 for full training
             num_train_epochs=args.num_train_epochs,  # delete for full training
             overwrite_output_dir=True,
             save_total_limit=1,
             fp16=args.fp16,
+            loss_kl=args.loss_kl,
+            gradient_accumulation_steps=args.gradient_accumulation_steps,
+            beta=args.beta,
+            use_beta_schedule=True,
+            use_deterministic_connect=False,
         )
         """ trainer """
         trainer = Seq2SeqTrainer(
@@ -745,11 +715,8 @@ def main():
         trainer.train()
 
     elif args.do_train == "custom_trainer":
-        #train(args, train_data, model, tokenizer)
+
         global_step, tr_loss, optimizer = train(args, train_data, model, tokenizer)
-        #print("global_step: {}, tr_loss: {}, optimizer: {}".format(global_step, tr_loss, optimizer))
-        #print("global_step: {}, tr_loss: {}, optimizer: {}, encoder_time: {}, decoder_time: {}".format(
-        #    global_step, tr_loss, optimizer, encoder_time, decoder_time))
 
     if args.do_eval:
         pass

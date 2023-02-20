@@ -155,6 +155,13 @@ class TrainOutput(NamedTuple):
     metrics: Dict[str, float]
 
 
+class TrainVaeOutput(NamedTuple):
+    global_step: int
+    training_loss: float
+    training_loss_kl: float
+    metrics: Dict[str, float]
+
+
 PREFIX_CHECKPOINT_DIR = "checkpoint"
 _re_checkpoint = re.compile(r"^" + PREFIX_CHECKPOINT_DIR + r"\-(\d+)$")
 

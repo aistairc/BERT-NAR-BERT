@@ -119,6 +119,7 @@ from .trainer_utils import (
     ShardedDDPOption,
     TrainerMemoryTracker,
     TrainOutput,
+    TrainVaeOutput,
     default_compute_objective,
     default_hp_space,
     denumpify_detensorize,
@@ -1447,6 +1448,22 @@ class Trainer:
 
         return model
 
+    def frange_cycle_zero_linear(self, n_iter, start=0.0, stop=1.0,  n_cycle=4, ratio_increase=0.5, ratio_zero=0.3):
+        L = np.ones(n_iter) * stop
+        period = n_iter/n_cycle
+        step = (stop-start)/(period*ratio_increase) # linear schedule
+
+        for c in range(n_cycle):
+            v, i = start, 0
+            while v <= stop and (int(i+c*period) < n_iter):
+                if i < period*ratio_zero:
+                    L[int(i+c*period)] = start
+                else:
+                    L[int(i+c*period)] = v
+                    v += step
+                i += 1
+        return L
+
     def train(
         self,
         resume_from_checkpoint: Optional[Union[str, bool]] = None,
@@ -1705,6 +1722,27 @@ class Trainer:
 
         self.control = self.callback_handler.on_train_begin(args, self.state, self.control)
 
+        #Beta Schedule
+
+        n_iter = int(args.num_train_epochs * (num_examples // total_train_batch_size))
+        if self.args.transition_learning == "ae":
+            self.beta_t_list = self.frange_cycle_zero_linear(n_iter, start=0.0, stop=0.0, n_cycle=10,
+                                                   ratio_increase=self.args.ratio_increase, ratio_zero=self.args.ratio_zero)
+
+        elif self.args.transition_learning == "vae":
+            self.beta_t_list = self.frange_cycle_zero_linear(n_iter, start=0.1, stop=self.args.beta, n_cycle=10,
+                                                   ratio_increase=self.args.ratio_increase, ratio_zero=self.args.ratio_zero)
+
+        elif self.args.transition_learning == "ae2vae":
+            self.beta_t_list = self.frange_cycle_zero_linear(n_iter, start=0.0, stop=self.args.beta, n_cycle=10,
+                                                   ratio_increase=self.args.ratio_increase, ratio_zero=self.args.ratio_zero)
+            print(self.beta_t_list)
+
+        logger.info(f"Total iters (estimated): {n_iter}; Length of beta schedule: {len(self.beta_t_list)}")
+
+        self.beta_t = 0.0
+
+
         # Skip the first epochs_trained epochs to get the random state of the dataloader at the right point.
         if not args.ignore_data_skip:
             for epoch in range(epochs_trained):
@@ -1772,9 +1810,15 @@ class Trainer:
                 ):
                     # Avoid unnecessary DDP synchronization since there will be no backward pass on this example.
                     with model.no_sync():
-                        tr_loss_step = self.training_step(model, inputs)
+                        if self.args.loss_kl:
+                            tr_loss_step,  tr_loss_kl = self.training_step(model, inputs)
+                        else:
+                            tr_loss_step = self.training_step(model, inputs)
                 else:
-                    tr_loss_step = self.training_step(model, inputs)
+                    if self.args.loss_kl:
+                        tr_loss_step,  tr_loss_kl = self.training_step(model, inputs)
+                    else:
+                        tr_loss_step = self.training_step(model, inputs)
 
                 if (
                     args.logging_nan_inf_filter
@@ -1904,6 +1948,9 @@ class Trainer:
         self.store_flos()
         metrics["total_flos"] = self.state.total_flos
         metrics["train_loss"] = train_loss
+        if self.args.loss_kl:
+            metrics["train_loss_kl"] = tr_loss_kl.item()
+            metrics["beta"] = self.args.beta
 
         self.is_in_train = False
 
@@ -1923,7 +1970,10 @@ class Trainer:
 
         self.control = self.callback_handler.on_train_end(args, self.state, self.control)
 
-        return TrainOutput(self.state.global_step, train_loss, metrics)
+        if self.args.loss_kl:
+            return TrainVaeOutput(self.state.global_step, train_loss, tr_loss_kl.item(), metrics)
+        else:
+            return TrainOutput(self.state.global_step, train_loss, metrics)
 
     def _get_output_dir(self, trial):
         if self.hp_search_backend is not None and trial is not None:
@@ -2515,14 +2565,34 @@ class Trainer:
             `torch.Tensor`: The tensor with training loss on this batch.
         """
         model.train()
+
         inputs = self._prepare_inputs(inputs)
+
+        if self.args.use_beta_schedule:
+            if self.state.global_step >= len(self.beta_t_list):
+                self.beta_t = 1.0
+            else:
+                self.beta_t = self.beta_t_list[self.state.global_step]
+
+        self.args.beta = self.beta_t
+
+        if self.beta_t == 0.0:
+            self.args.fb_mode = 0
+        else:
+            self.args.fb_mode = 1
+
+        if self.args.use_deterministic_connect:
+            self.args.fb_mode = 2
 
         if is_sagemaker_mp_enabled():
             loss_mb = smp_forward_backward(model, inputs, self.args.gradient_accumulation_steps)
             return loss_mb.reduce_mean().detach().to(self.args.device)
 
         with self.compute_loss_context_manager():
-            loss = self.compute_loss(model, inputs)
+            if self.args.loss_kl:
+                loss, loss_kl = self.compute_loss(model, inputs)
+            else:
+                loss = self.compute_loss(model, inputs)
 
         if self.args.n_gpu > 1:
             loss = loss.mean()  # mean() to average on multi-gpu parallel training
@@ -2542,9 +2612,53 @@ class Trainer:
         else:
             loss.backward()
 
-        return loss.detach()
+        if self.args.loss_kl:
+            return loss.detach(), loss_kl.detach()
+        else:
+            return loss.detach()
 
     def compute_loss(self, model, inputs, return_outputs=False):
+        """
+        How the loss is computed by Trainer. By default, all models return the loss in the first element.
+
+        Subclass and override for custom behavior.
+        """
+        if self.label_smoother is not None and "labels" in inputs:
+            labels = inputs.pop("labels")
+        else:
+            labels = None
+        outputs = model(**inputs)
+        #print("outputs", outputs)
+        # Save past state if it exists
+        # TODO: this needs to be fixed and made cleaner later.
+        if self.args.past_index >= 0:
+            self._past = outputs[self.args.past_index]
+
+        if labels is not None:
+            #if unwrap_model(model)._get_name() in MODEL_FOR_CAUSAL_LM_MAPPING_NAMES.values():
+            if unwrap_model(model)._get_name() in MODEL_FOR_CAUSAL_LM_MAPPING.values():
+                loss = self.label_smoother(outputs, labels, shift_labels=True)
+            else:
+                loss = self.label_smoother(outputs, labels)
+        else:
+            if isinstance(outputs, dict) and "loss" not in outputs:
+                raise ValueError(
+                    "The model did not return a loss from the inputs, only the following keys: "
+                    f"{','.join(outputs.keys())}. For reference, the inputs it received are {','.join(inputs.keys())}."
+                )
+            # We don't use .loss here since the model may return tuples instead of ModelOutput.
+            loss = outputs["loss"] if isinstance(outputs, dict) else outputs[0]
+            loss_kl = outputs["loss_kl"] if isinstance(outputs, dict) else outputs[1]
+
+        if self.args.loss_kl:
+            loss = loss + self.args.beta * loss_kl
+            print("loss: {}\tloss_kl: {}\tbeta: {}".format(loss, loss_kl, self.args.beta))
+            return (loss, loss_kl, outputs) if return_outputs else loss, loss_kl
+        else:
+            return (loss, outputs) if return_outputs else loss
+
+
+    def compute_vae_loss(self, model, inputs, return_outputs=False):
         """
         How the loss is computed by Trainer. By default, all models return the loss in the first element.
 
@@ -2574,6 +2688,8 @@ class Trainer:
                 )
             # We don't use .loss here since the model may return tuples instead of ModelOutput.
             loss = outputs["loss"] if isinstance(outputs, dict) else outputs[0]
+            loss_kl = outputs["loss_kl"] if isinstance(outputs, dict) else outputs[1]
+        loss_outputs = (loss, outputs)
 
         return (loss, outputs) if return_outputs else loss
 
@@ -3242,7 +3358,11 @@ class Trainer:
             else:
                 if has_labels or loss_without_labels:
                     with self.compute_loss_context_manager():
-                        loss, outputs = self.compute_loss(model, inputs, return_outputs=True)
+                        #print("compute_loss", self.compute_loss(model, inputs, return_outputs=True))
+                        if self.args.loss_kl:
+                            loss, loss_kl, outputs = self.compute_loss(model, inputs, return_outputs=True)[0]
+                        else:
+                            loss, outputs = self.compute_loss(model, inputs, return_outputs=True)
                     loss = loss.mean().detach()
 
                     if isinstance(outputs, dict):
@@ -3507,7 +3627,6 @@ class Trainer:
     ) -> PredictionOutput:
         """
         Prediction/evaluation loop, shared by `Trainer.evaluate()` and `Trainer.predict()`.
-
         Works both with or without labels.
         """
         args = self.args

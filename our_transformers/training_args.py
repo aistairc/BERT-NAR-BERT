@@ -593,8 +593,22 @@ class TrainingArguments:
     adam_beta2: float = field(default=0.999, metadata={"help": "Beta2 for AdamW optimizer"})
     adam_epsilon: float = field(default=1e-8, metadata={"help": "Epsilon for AdamW optimizer."})
     max_grad_norm: float = field(default=1.0, metadata={"help": "Max gradient norm."})
-
     num_train_epochs: float = field(default=3.0, metadata={"help": "Total number of training epochs to perform."})
+    dim_target_kl: float = field(default=3.0, metadata={"help": "dim_target_kl free bit training mode."})
+    beta: float = field(default=1.0, metadata={"help": "The weighting hyper-parameter of the KL term in VAE."})
+    ratio_increase: float = field(default=0.25, metadata={"help": "Learning schedule, the percentage for the annealing stage."})
+    ratio_zero: float = field(default=1.0, metadata={"help": "Learning schedule, the percentage for the pure auto-encoding stage."})
+    fb_mode: int = field(default=1, metadata={"help": "free bit training mode. 0 for AE, 1 for VAE"})
+    use_beta_schedule: bool = field(default=False, metadata={"help": "Use cyclical beta schedule for auto-encoders."})
+    use_deterministic_connect: bool = field(default=False, metadata={"help": "Use deterministic inference to generate latent codes, i.e., standard auto-encoders."})
+
+    transition_learning: str = field(
+        default="ae2vae",
+        metadata={
+            "help": "the type of annealing function in AdamW/RecAdam. Default sigmoid",
+            "choices": ["ae", "vae", 'ae2vae'],
+        },
+    )
     max_steps: int = field(
         default=-1,
         metadata={"help": "If > 0: set total number of training steps to perform. Override num_train_epochs."},
@@ -696,6 +710,10 @@ class TrainingArguments:
     fp16: bool = field(
         default=False,
         metadata={"help": "Whether to use fp16 (mixed) precision instead of 32-bit"},
+    )
+    loss_kl: bool = field(
+        default=False,
+        metadata={"help": "Whether to use vae/kl loss"},
     )
     fp16_opt_level: str = field(
         default="O1",
