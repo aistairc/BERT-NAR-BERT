@@ -738,6 +738,10 @@ class Seq2SeqLMOutput(ModelOutput):
     encoder_attentions: Optional[Tuple[torch.FloatTensor]] = None
     # Adding decoder attention mask
     decoder_attention_mask: Optional[torch.tensor] = None
+    # Adding other losses
+    loss_length: Optional[torch.FloatTensor] = None
+    loss_kl: Optional[torch.FloatTensor] = None
+
 
 @dataclass
 class Seq2SeqMoEOutput(ModelOutput):

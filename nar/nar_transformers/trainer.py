@@ -1446,6 +1446,22 @@ class Trainer:
 
         return model
 
+    def frange_cycle_zero_linear(self, n_iter, start=0.0, stop=1.0,  n_cycle=4, ratio_increase=0.5, ratio_zero=0.3):
+        L = np.ones(n_iter) * stop
+        period = n_iter/n_cycle
+        step = (stop-start)/(period*ratio_increase) # linear schedule
+
+        for c in range(n_cycle):
+            v, i = start, 0
+            while v <= stop and (int(i+c*period) < n_iter):
+                if i < period*ratio_zero:
+                    L[int(i+c*period)] = start
+                else:
+                    L[int(i+c*period)] = v
+                    v += step
+                i += 1
+        return L
+
     def train(
         self,
         resume_from_checkpoint: Optional[Union[str, bool]] = None,
@@ -1697,12 +1713,21 @@ class Trainer:
 
         # tr_loss is a tensor to avoid synchronization of TPUs through .item()
         tr_loss = torch.tensor(0.0).to(args.device)
+        tr_losses = {
+            "rec": torch.tensor(0.0).to(args.device),
+            "length": torch.tensor(0.0).to(args.device),
+            "kl": torch.tensor(0.0).to(args.device),
+        }
         # _total_loss_scalar is updated everytime .item() has to be called on tr_loss and stores the sum of all losses
         self._total_loss_scalar = 0.0
         self._globalstep_last_logged = self.state.global_step
         model.zero_grad()
 
         self.control = self.callback_handler.on_train_begin(args, self.state, self.control)
+
+        # For beta anealing
+        beta_list = self.frange_cycle_zero_linear(max_steps, start=0.0, stop=1.0, n_cycle=*num_train_epochs,
+                                                  ratio_increase=0.25, ratio_zero=0.5)
 
         # Skip the first epochs_trained epochs to get the random state of the dataloader at the right point.
         if not args.ignore_data_skip:
@@ -1719,7 +1744,6 @@ class Trainer:
                     # Otherwise we need to call the whooooole sampler cause there is some random operation added
                     # AT THE VERY END!
                     _ = list(train_dataloader.sampler)
-
         for epoch in range(epochs_trained, num_train_epochs):
             if isinstance(train_dataloader, DataLoader) and isinstance(train_dataloader.sampler, DistributedSampler):
                 train_dataloader.sampler.set_epoch(epoch)
@@ -1771,9 +1795,11 @@ class Trainer:
                 ):
                     # Avoid unnecessary DDP synchronization since there will be no backward pass on this example.
                     with model.no_sync():
-                        tr_loss_step = self.training_step(model, inputs)
+                        tr_loss_step, tr_losses_step = self.training_step(model, inputs,
+                                                                          beta=beta_list[self.state.global_step])
                 else:
-                    tr_loss_step = self.training_step(model, inputs)
+                    tr_loss_step, tr_losses_step = self.training_step(model, inputs,
+                                                                      beta=beta_list[self.state.global_step])
 
                 if (
                     args.logging_nan_inf_filter
@@ -1784,6 +1810,8 @@ class Trainer:
                     tr_loss += tr_loss / (1 + self.state.global_step - self._globalstep_last_logged)
                 else:
                     tr_loss += tr_loss_step
+                    for k in tr_losses.keys():
+                        tr_losses[k] += tr_losses_step[k]
 
                 self.current_flos += float(self.floating_point_ops(inputs))
 
@@ -1850,7 +1878,10 @@ class Trainer:
                     self.state.epoch = epoch + (step + 1) / steps_in_epoch
                     self.control = self.callback_handler.on_step_end(args, self.state, self.control)
 
-                    self._maybe_log_save_evaluate(tr_loss, model, trial, epoch, ignore_keys_for_eval)
+                    #self._maybe_log_save_evaluate(tr_loss, model, trial, epoch, ignore_keys_for_eval)
+                    self._maybe_log_save_evaluate(tr_loss, tr_losses,
+                                                  beta_list[self.state.global_step-1],
+                                                  model, trial, epoch, ignore_keys_for_eval)
                 else:
                     self.control = self.callback_handler.on_substep_end(args, self.state, self.control)
 
@@ -1865,7 +1896,10 @@ class Trainer:
                 self.control.should_training_stop = True
 
             self.control = self.callback_handler.on_epoch_end(args, self.state, self.control)
-            self._maybe_log_save_evaluate(tr_loss, model, trial, epoch, ignore_keys_for_eval)
+            #self._maybe_log_save_evaluate(tr_loss, model, trial, epoch, ignore_keys_for_eval)
+            self._maybe_log_save_evaluate(tr_loss, tr_losses,
+                                          beta_list[self.state.global_step-1],
+                                          model, trial, epoch, ignore_keys_for_eval)
 
             if DebugOption.TPU_METRICS_DEBUG in self.args.debug:
                 if is_torch_tpu_available():
@@ -2081,7 +2115,7 @@ class Trainer:
                 f"There were unexpected keys in the checkpoint model loaded: {load_result.unexpected_keys}."
             )
 
-    def _maybe_log_save_evaluate(self, tr_loss, model, trial, epoch, ignore_keys_for_eval):
+    def _maybe_log_save_evaluate(self, tr_loss, tr_losses, beta, model, trial, epoch, ignore_keys_for_eval):
         if self.control.should_log:
             if is_torch_tpu_available():
                 xm.mark_step()
@@ -2094,7 +2128,20 @@ class Trainer:
             # reset tr_loss to zero
             tr_loss -= tr_loss
 
+            tr_losses_scalar = {}
+            for k, v in tr_losses.items():
+                tr_losses_scalar[k] = self._nested_gather(v).mean().item()
+                tr_losses[k] -= tr_losses[k]
+
             logs["loss"] = round(tr_loss_scalar / (self.state.global_step - self._globalstep_last_logged), 4)
+
+            logs["reconstruction_loss"] = round(tr_losses_scalar["rec"] / (self.state.global_step - self._globalstep_last_logged), 4)
+            logs["length_loss"] = round(tr_losses_scalar["length"] / (self.state.global_step - self._globalstep_last_logged), 4)
+            logs["KL_loss"] = round(tr_losses_scalar["kl"] / (self.state.global_step - self._globalstep_last_logged), 4)
+
+            logs["learning_rate"] = self._get_learning_rate()
+
+            logs["beta"] = beta
             logs["learning_rate"] = self._get_learning_rate()
 
             self._total_loss_scalar += tr_loss_scalar
@@ -2495,7 +2542,7 @@ class Trainer:
 
         return ctx_manager
 
-    def training_step(self, model: nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]]) -> torch.Tensor:
+    def training_step(self, model: nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]], beta=0.0) -> torch.Tensor:
         """
         Perform a training step on a batch of inputs.
 
@@ -2521,7 +2568,14 @@ class Trainer:
             return loss_mb.reduce_mean().detach().to(self.args.device)
 
         with self.compute_loss_context_manager():
-            loss = self.compute_loss(model, inputs)
+            #loss = self.compute_loss(model, inputs)
+            _, outputs = self.compute_loss(model, inputs, return_outputs=True)
+            loss = outputs.loss + outputs.loss_length + beta * outputs.loss_kl
+            losses = {
+                "rec": outputs.loss,
+                "length": outputs.loss_length,
+                "kl": outputs.loss_kl,
+            }
 
         if self.args.n_gpu > 1:
             loss = loss.mean()  # mean() to average on multi-gpu parallel training
@@ -2541,7 +2595,7 @@ class Trainer:
         else:
             loss.backward()
 
-        return loss.detach()
+        return loss.detach(), losses
 
     def compute_loss(self, model, inputs, return_outputs=False):
         """

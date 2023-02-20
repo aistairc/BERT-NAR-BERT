@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #$ -l rt_F=2
-#$ -l h_rt=20:00:00
+#$ -l h_rt=10:00:00
 #$ -t 1
 #$ -j y
 #$ -cwd
@@ -35,7 +35,3 @@ done
 # launch on master node
 node_rank=0
 eval "torchrun --nproc_per_node $NUM_GPUS_PER_NODE --nnodes $NHOSTS --node_rank $node_rank --master_addr `hostname` "$python_cmd
-
-# finalize
-wait
-exit 0

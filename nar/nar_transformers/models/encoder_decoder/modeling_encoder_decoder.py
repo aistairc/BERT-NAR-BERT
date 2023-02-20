@@ -276,15 +276,17 @@ class EncoderDecoderModel(PreTrainedModel):
             from ..bert.modeling_bert import BertLMHeadModel
             decoder = BertLMHeadModel(config.decoder)
 
+        latent_size = config.encoder.hidden_size
         self.encoder = encoder
         self.decoder = decoder
-        #self.linear = nn.Linear(config.encoder.hidden_size, 2 * config.encoder.hidden_size, bias=False)
-        self.linear = nn.Linear(config.encoder.hidden_size, config.encoder.hidden_size, bias=False)
-        self.linear_emb = nn.Linear(config.encoder.hidden_size, config.encoder.hidden_size, bias=False)
+        self.linear_mu_logvar = nn.Linear(config.encoder.hidden_size, 2 * latent_size, bias=False)
+        self.linear_z = nn.Linear(config.encoder.hidden_size, latent_size, bias=False)
+        #self.linear_z = nn.Linear(config.encoder.hidden_size, latent_size)
+        #self.linear_h = nn.Linear(latent_size, config.decoder.hidden_size)
 
         # Configuration for length prediction
-        self.length_range = 10
-        self.mode = 'regression'
+        self.length_range = 100
+        self.mode = 'classification'
 
         if self.mode == 'regression':
             self.length_predictor = nn.Linear(config.encoder.hidden_size, 1, bias=False)
@@ -353,27 +355,6 @@ class EncoderDecoderModel(PreTrainedModel):
 
     def set_output_embeddings(self, new_embeddings):
         return self.decoder.set_output_embeddings(new_embeddings)
-
-
-    def reparameterize(self, mu, logvar, nsamples=1):
-        """sample from posterior Gaussian family
-        Args:
-            mu: Tensor
-                Mean of gaussian distribution with shape (batch, nz)
-            logvar: Tensor
-                logvar of gaussian distibution with shape (batch, nz)
-        Returns: Tensor
-            Sampled z with shape (batch, nsamples, nz)
-        """
-        batch_size, nz = mu.size()
-        std = logvar.mul(0.5).exp()
-
-        mu_expd = mu.unsqueeze(1).expand(batch_size, nsamples, nz)
-        std_expd = std.unsqueeze(1).expand(batch_size, nsamples, nz)
-
-        eps = torch.zeros_like(std_expd).normal_()
-
-        return mu_expd + torch.mul(eps, std_expd)
 
     @classmethod
     def from_pretrained(cls, pretrained_model_name_or_path, *model_args, **kwargs):
@@ -630,7 +611,6 @@ class EncoderDecoderModel(PreTrainedModel):
         config = EncoderDecoderConfig.from_encoder_decoder_configs(encoder.config, decoder.config, **kwargs)
         return cls(encoder=encoder, decoder=decoder, config=config)
 
-
     @add_start_docstrings_to_model_forward(ENCODER_DECODER_INPUTS_DOCSTRING)
     @replace_return_docstrings(output_type=Seq2SeqLMOutput, config_class=_CONFIG_FOR_DOC)
     def forward(
@@ -703,17 +683,39 @@ class EncoderDecoderModel(PreTrainedModel):
             encoder_outputs = BaseModelOutput(*encoder_outputs)
 
         encoder_hidden_states = encoder_outputs[0]
-        z = self.linear(encoder_hidden_states)
-        #z = encoder_hidden_states
+        if self.config.is_token_level_z:
+            prior_states = encoder_hidden_states
+        else:
+            prior_states = encoder_outputs[1]
+        x_mask = attention_mask
+        if self.config.is_vae:
+            # Connect hidden feature to the latent space
+            mu, logvar = self.linear_mu_logvar(prior_states).chunk(2, -1)
+            std = (0.5 * logvar).exp()
+            eps = torch.randn_like(std)
+            loss_kl = 0.5 * (mu.pow(2) + logvar.exp() - logvar - 1)
+            if self.training:
+                z = mu + eps * std
+            else:
+                z = mu
+
+            if self.config.is_token_level_z:
+                loss_kl = ((loss_kl.mean(-1) * x_mask).sum(1) / x_mask.sum(1)).mean()
+            else:
+                loss_kl = loss_kl.mean()
+        else:
+            z = self.linear_z(prior_states)
+            loss_kl = torch.tensor(0.0)
 
         if self.config.do_length_prediction:
             bs, seq_len = input_ids.shape
-            prior_states = encoder_hidden_states
-            x_mask = attention_mask
             z_mask = attention_mask
             z_lens = z_mask.sum(1) - 1
 
-            mean_z = ((z + prior_states) * z_mask[:, :, None]).sum(1) / z_mask.sum(1)[:, None]
+            if self.config.is_token_level_z:
+                mean_z = ((z + prior_states) * z_mask[:, :, None]).sum(1) / z_mask.sum(1)[:, None]
+            else:
+                mean_z = z + prior_states
 
             if self.mode == 'regression':
                 logits = self.length_predictor(mean_z)
@@ -722,34 +724,35 @@ class EncoderDecoderModel(PreTrainedModel):
                 logits = self.length_predictor(mean_z)
                 delta_pred = logits.argmax(-1) - self.length_range//2
 
+            y_mask = decoder_attention_mask
+
+            # Computing length prediction loss
+            y_lens = y_mask.sum(1) - 1
+            delta_gold = (y_lens - z_mask.sum(1) + self.length_range//2).long().clamp(0, self.length_range-1)
+            if self.mode == 'regression':
+                #loss_length_fct = nn.L1Loss()
+                loss_length_fct = RMSELoss()
+            elif self.mode == 'classification':
+                loss_length_fct = CrossEntropyLoss()
+            loss_length = loss_length_fct(logits, delta_gold)
+
             # For training
-            if decoder_attention_mask is not None:
-                y_mask = decoder_attention_mask
-
-                # Computing length prediction loss
-                y_lens = y_mask.sum(1) - 1
-                delta_gold = (y_lens - z_mask.sum(1) + self.length_range//2).long().clamp(0, self.length_range-1)
-                if self.mode == 'regression':
-                    length_loss_fct = nn.L1Loss()
-                    #length_loss_fct = RMSELoss()
-                elif self.mode == 'classification':
-                    length_loss_fct = CrossEntropyLoss()
-                length_loss =length_loss_fct(logits, delta_gold)
-
+            if self.training:
                 target_lens = y_lens + 1
-
             # For inference
             else:
                 target_lens = z_lens + delta_pred + 1
-                length_loss = 0
 
             # Length Converting
-            latent_z, _ = self.length_converter(z, target_lens, z_mask)
-            #arange = torch.arange(target_lens.max().long())
             arange = torch.arange(seq_len).cuda()
             target_mask = (arange[None, :].repeat(z.size(0), 1) < target_lens[:, None]).long()
+            if self.config.is_token_level_z:
+                latent_z, _ = self.length_converter(z, target_lens, z_mask)
+            else:
+                latent_z = z.unsqueeze(1).repeat_interleave(seq_len, dim=1)
 
         else:
+            loss_length = torch.tensor(0.0)
             latent_z = z
             target_mask = attention_mask # if do not adopt length prediction, input length is directly used for target length
 
@@ -764,6 +767,8 @@ class EncoderDecoderModel(PreTrainedModel):
             decoder_input_ids = shift_tokens_right(
                 labels, self.config.pad_token_id, self.config.decoder_start_token_id
             )
+
+        #latent_z = nn.functional.gelu(self.linear_h(latent_z))
 
         # Decode
         decoder_outputs = self.decoder(
@@ -789,10 +794,6 @@ class EncoderDecoderModel(PreTrainedModel):
             loss_fct = CrossEntropyLoss()
             loss = loss_fct(logits.reshape(-1, self.decoder.config.vocab_size), labels.view(-1))
 
-            # Adding length loss
-            if self.config.do_length_prediction:
-                loss += length_loss
-
         if not return_dict:
             if loss is not None:
                 return (loss,) + decoder_outputs + encoder_outputs
@@ -801,6 +802,8 @@ class EncoderDecoderModel(PreTrainedModel):
 
         return Seq2SeqLMOutput(
             loss=loss,
+            loss_length=loss_length,
+            loss_kl=loss_kl,
             logits=decoder_outputs.logits,
             past_key_values=decoder_outputs.past_key_values,
             decoder_hidden_states=decoder_outputs.hidden_states,
