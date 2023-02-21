@@ -1726,7 +1726,7 @@ class Trainer:
         self.control = self.callback_handler.on_train_begin(args, self.state, self.control)
 
         # For beta anealing
-        beta_list = self.frange_cycle_zero_linear(max_steps, start=0.0, stop=1.0, n_cycle=*num_train_epochs,
+        beta_list = self.frange_cycle_zero_linear(max_steps, start=0.0, stop=1.0, n_cycle=num_train_epochs,
                                                   ratio_increase=0.25, ratio_zero=0.5)
 
         # Skip the first epochs_trained epochs to get the random state of the dataloader at the right point.
