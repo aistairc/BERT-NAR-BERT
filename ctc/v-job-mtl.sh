@@ -1,11 +1,9 @@
 #!/bin/bash
 
-#$ -l rt_F=4
-#$ -l h_rt=10:00:00
-#$ -t 1
+#$ -l rt_F=2
+#$ -l h_rt=30:00:00
 #$ -j y
 #$ -cwd
-#$ -m ea
 
 source /etc/profile.d/modules.sh
 
@@ -22,8 +20,8 @@ export NUM_GPUS_PER_NODE=$(nvidia-smi --query-gpu=name --format=csv,noheader | w
 
 export HF_DATASETS_CACHE="/scratch/aae15163zd/cache/huggingface/datasets"
 
+#python_cmd="multilingual-en-de.py"
 python_cmd="train-en-de.py"
-#python_cmd="evaluate-en-de.py"
 
 # launch on slave nodes
 node_rank=1
@@ -36,3 +34,7 @@ done
 # launch on master node
 node_rank=0
 eval "torchrun --nproc_per_node $NUM_GPUS_PER_NODE --nnodes $NHOSTS --node_rank $node_rank --master_addr `hostname` "$python_cmd
+
+# finalize
+wait
+exit 0

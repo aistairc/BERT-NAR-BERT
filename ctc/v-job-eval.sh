@@ -1,7 +1,7 @@
 #!/bin/bash
 
-#$ -l rt_AF=1
-#$ -l h_rt=10:00:00
+#$ -l rt_F=1
+#$ -l h_rt=1:00:00
 #$ -t 1
 #$ -j y
 #$ -cwd
@@ -9,20 +9,20 @@
 
 source /etc/profile.d/modules.sh
 
-module load gcc/11.2.0
-module load python/3.10/3.10.4
-module load cuda/11.5/11.5.2
-module load cudnn/8.3/8.3.3
-module load nccl/2.11/2.11.4-1
+module load gcc/9.3.0
+module load python/3.8/3.8.13
+module load cuda/11.1/11.1.1
+module load cudnn/8.0/8.0.5
+module load nccl/2.8/2.8.4-1
 
-source ~/venv/af_pytorch/bin/activate
+source ~/venv/pytorch/bin/activate
 
 export OMP_NUM_THREADS=1
 export NUM_GPUS_PER_NODE=$(nvidia-smi --query-gpu=name --format=csv,noheader | wc -l)
 
 export HF_DATASETS_CACHE="/scratch/aae15163zd/cache/huggingface/datasets"
 
-python_cmd="pretrain-wiki.py"
+python_cmd="evaluate-en-de.py"
 
 # launch on slave nodes
 node_rank=1

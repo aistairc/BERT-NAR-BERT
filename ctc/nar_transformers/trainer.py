@@ -2135,9 +2135,8 @@ class Trainer:
 
             logs["loss"] = round(tr_loss_scalar / (self.state.global_step - self._globalstep_last_logged), 4)
 
-            logs["reconstruction_loss"] = round(tr_losses_scalar["rec"] / (self.state.global_step - self._globalstep_last_logged), 4)
-            # Changed length loss to CTC loss
-            logs["CTC_loss"] = round(tr_losses_scalar["length"] / (self.state.global_step - self._globalstep_last_logged), 4)
+            logs["CTC_loss"] = round(tr_losses_scalar["rec"] / (self.state.global_step - self._globalstep_last_logged), 4)
+            logs["length_loss"] = round(tr_losses_scalar["length"] / (self.state.global_step - self._globalstep_last_logged), 4)
             logs["KL_loss"] = round(tr_losses_scalar["kl"] / (self.state.global_step - self._globalstep_last_logged), 4)
 
             logs["learning_rate"] = self._get_learning_rate()
@@ -2573,9 +2572,9 @@ class Trainer:
             _, outputs = self.compute_loss(model, inputs, return_outputs=True)
             loss = outputs.loss + outputs.loss_length + beta * outputs.loss_kl
             losses = {
-                "rec": outputs.loss,
-                "length": outputs.loss_length,
-                "kl": outputs.loss_kl,
+                "rec": outputs.loss.detach(),
+                "length": outputs.loss_length.detach(),
+                "kl": outputs.loss_kl.detach(),
             }
 
         if self.args.n_gpu > 1:
@@ -3019,16 +3018,12 @@ class Trainer:
         # Initialize containers
         # losses/preds/labels on GPU/TPU (accumulated for eval_accumulation_steps)
         losses_host = None
-        rec_losses_host = None
-        len_losses_host = None
         preds_host = None
         labels_host = None
         inputs_host = None
 
         # losses/preds/labels on CPU (final containers)
         all_losses = None
-        all_rec_losses = None
-        all_len_losses = None
         all_preds = None
         all_labels = None
         all_inputs = None
@@ -3048,9 +3043,6 @@ class Trainer:
 
             # Prediction step
             loss, logits, labels = self.prediction_step(model, inputs, prediction_loss_only, ignore_keys=ignore_keys)
-            #loss, each_loss, logits, labels = self._prediction_step(model, inputs, prediction_loss_only, ignore_keys=ignore_keys)
-            rec_loss = loss#each_loss["rec"]
-            len_loss = loss#each_loss["length"]
             inputs_decode = self._prepare_input(inputs["input_ids"]) if args.include_inputs_for_metrics else None
 
             if is_torch_tpu_available():
@@ -3060,12 +3052,6 @@ class Trainer:
             if loss is not None:
                 losses = self._nested_gather(loss.repeat(batch_size))
                 losses_host = losses if losses_host is None else torch.cat((losses_host, losses), dim=0)
-            if rec_loss is not None:
-                rec_losses = self._nested_gather(rec_loss.repeat(batch_size))
-                rec_losses_host = rec_losses if rec_losses_host is None else torch.cat((rec_losses_host, rec_losses), dim=0)
-            if len_loss is not None:
-                len_losses = self._nested_gather(len_loss.repeat(batch_size))
-                len_losses_host = len_losses if len_losses_host is None else torch.cat((len_losses_host, len_losses), dim=0)
             if labels is not None:
                 labels = self._pad_across_processes(labels)
                 labels = self._nested_gather(labels)
@@ -3091,12 +3077,6 @@ class Trainer:
                 if losses_host is not None:
                     losses = nested_numpify(losses_host)
                     all_losses = losses if all_losses is None else np.concatenate((all_losses, losses), axis=0)
-                if rec_losses_host is not None:
-                    rec_losses = nested_numpify(rec_losses_host)
-                    all_rec_losses = rec_losses if all_rec_losses is None else np.concatenate((all_rec_losses, rec_losses), axis=0)
-                if len_losses_host is not None:
-                    len_losses = nested_numpify(len_losses_host)
-                    all_len_losses = len_losses if all_len_losses is None else np.concatenate((all_len_losses, len_losses), axis=0)
                 if preds_host is not None:
                     logits = nested_numpify(preds_host)
                     all_preds = logits if all_preds is None else nested_concat(all_preds, logits, padding_index=-100)
@@ -3115,7 +3095,6 @@ class Trainer:
 
                 # Set back to None to begin a new accumulation
                 losses_host, preds_host, inputs_host, labels_host = None, None, None, None
-                rec_losses_host, len_losses_host = None, None
 
         if args.past_index and hasattr(self, "_past"):
             # Clean the state at the end of the evaluation loop
@@ -3125,12 +3104,6 @@ class Trainer:
         if losses_host is not None:
             losses = nested_numpify(losses_host)
             all_losses = losses if all_losses is None else np.concatenate((all_losses, losses), axis=0)
-        if rec_losses_host is not None:
-            rec_losses = nested_numpify(rec_losses_host)
-            all_rec_losses = rec_losses if all_rec_losses is None else np.concatenate((all_rec_losses, rec_losses), axis=0)
-        if len_losses_host is not None:
-            len_losses = nested_numpify(len_losses_host)
-            all_len_losses = len_losses if all_len_losses is None else np.concatenate((all_len_losses, len_losses), axis=0)
         if preds_host is not None:
             logits = nested_numpify(preds_host)
             all_preds = logits if all_preds is None else nested_concat(all_preds, logits, padding_index=-100)
@@ -3162,10 +3135,6 @@ class Trainer:
         # samplers has been rounded to a multiple of batch_size, so we truncate.
         if all_losses is not None:
             all_losses = all_losses[:num_samples]
-        if all_rec_losses is not None:
-            all_rec_losses = all_rec_losses[:num_samples]
-        if all_len_losses is not None:
-            all_len_losses = all_len_losses[:num_samples]
         if all_preds is not None:
             all_preds = nested_truncate(all_preds, num_samples)
         if all_labels is not None:
@@ -3189,10 +3158,6 @@ class Trainer:
 
         if all_losses is not None:
             metrics[f"{metric_key_prefix}_loss"] = all_losses.mean().item()
-        if all_rec_losses is not None:
-            metrics[f"{metric_key_prefix}_reconstruction_loss"] = all_rec_losses.mean().item()
-        if all_len_losses is not None:
-            metrics[f"{metric_key_prefix}_length_loss"] = all_len_losses.mean().item()
 
         # Prefix all keys with metric_key_prefix + '_'
         for key in list(metrics.keys()):

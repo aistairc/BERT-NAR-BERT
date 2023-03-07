@@ -17,7 +17,7 @@ de_tokenizer = BertTokenizerFast.from_pretrained("bert-base-german-cased")
 batch_size=16  # change to 16 for full training
 max_length=128 # 128 actually works better for MT
 
-latent_size = 768
+latent_size = 128
 
 #extract the translations as columns because the format in huggingface datasets for wmt14 is not practical
 def extract_features(examples):
@@ -44,11 +44,10 @@ def process_data_to_model_inputs(batch):
     return batch
 
 
-dataset_cache_path = "/scratch/aae15163zd/cache/huggingface/datasets/wmt14-en-de-msl128-bert-base-cased/"
+dataset_cache_path = "/scratch/aae15163zd/cache/huggingface/datasets/wmt14-en-de-msl128-unilingual-bert-base-cased/"
 
 if False:
     test_data = datasets.load_dataset("wmt14", "de-en", split="test")
-
     test_data = test_data.map(extract_features, batched=True, remove_columns=["translation"])
 
     from datasets.utils.logging import disable_progress_bar, enable_progress_bar
@@ -64,7 +63,7 @@ if False:
     test_data.set_format(
         type="torch", columns=["input_ids", "attention_mask", "decoder_input_ids", "decoder_attention_mask", "labels"],
     )
-    test_data.save_to_disk(os.path.join(dataset_cache_path, 'test'))
+    #test_data.save_to_disk(os.path.join(dataset_cache_path, 'test'))
 else:
     test_data = datasets.load_from_disk(os.path.join(dataset_cache_path, 'test'))
 
@@ -75,17 +74,16 @@ de_tokenizer.bos_token = de_tokenizer.cls_token
 de_tokenizer.eos_token = de_tokenizer.sep_token
 
 encoder_config = BertConfig.from_pretrained("bert-base-cased")
+encoder_config.is_vae = False
 decoder_config = BertConfig.from_pretrained("bert-base-german-cased")
 encoder_config.latent_size, decoder_config.latent_size = latent_size, latent_size
-encoder_config.is_vae = False
 config = EncoderDecoderConfig.from_encoder_decoder_configs(encoder_config, decoder_config)
 
 #model = EncoderDecoderModel(config=config)
 model = EncoderDecoderModel.from_pretrained(
-    "/groups/gac50543/migrated_from_SFA_GPFS/asada/translation/lp-ae-token-uni-cased-z768/checkpoint-30000/",
+    "/groups/gac50543/migrated_from_SFA_GPFS/asada/translation/ctc-only-nomask-uni/checkpoint-175000/",
     config=config)
 
-model.config.do_length_prediction = True
 model.config.is_vae = False
 model.config.is_token_level_z = True
 
@@ -108,21 +106,55 @@ model.config.num_beam_groups = 0
 
 # load bleu for validation
 bleu = evaluate.load("bleu")
+sacrebleu = evaluate.load("sacrebleu")
 
 def compute_metrics(pred):
     labels_ids = pred.label_ids
     pred_ids = pred.predictions
 
+    # Removing repetition tokens
+    def remove_repetition(token_ids):
+        no_repetition_token_ids = []
+        for i, token_id in enumerate(token_ids):
+            if i != len(token_ids) - 1:
+                if token_ids[i + 1] == token_id:
+                    token_id = de_tokenizer.pad_token_id
+            no_repetition_token_ids.append(token_id)
+        return no_repetition_token_ids
+
+    no_repetition_pred_ids = [remove_repetition(x) for x in pred_ids]
+
     pred_str = de_tokenizer.batch_decode(pred_ids, skip_special_tokens=True)
     labels_ids[labels_ids == -100] = de_tokenizer.pad_token_id
     label_str = de_tokenizer.batch_decode(labels_ids, skip_special_tokens=True)
-    bleu_output = bleu.compute(predictions=pred_str, references=label_str, max_order=4)
-    return {"bleu4": round(np.mean(bleu_output["bleu"]), 4)}
 
+    no_repetition_pred_str = de_tokenizer.batch_decode(no_repetition_pred_ids, skip_special_tokens=True)
+    no_repetition_uncased_str = [x.lower() for x in no_repetition_pred_str]
+
+    pred_uncased_str = [x.lower() for x in pred_str]
+    label_uncased_str = [x.lower() for x in label_str]
+
+    #for l, p in zip(label_str, pred_str):
+    #    print("LABEL", l)
+    #    print("PRED", p)
+    #    print()
+
+    bleu_output = bleu.compute(predictions=pred_str, references=label_str, max_order=4)
+    bleu_norep_output = bleu.compute(predictions=no_repetition_pred_str, references=label_str, max_order=4)
+    bleu_norep_uncased_output = bleu.compute(predictions=no_repetition_uncased_str, references=label_uncased_str, max_order=4)
+    bleu_uncased_output = bleu.compute(predictions=pred_uncased_str, references=label_uncased_str, max_order=4)
+    sacrebleu_output = sacrebleu.compute(predictions=pred_str, references=label_str)
+    return {
+        "bleu4": round(np.mean(bleu_output["bleu"]), 4),
+        "bleu4_no_repetition": round(np.mean(bleu_norep_output["bleu"]), 4),
+        "bleu4_no_repetition_uncased": round(np.mean(bleu_norep_uncased_output["bleu"]), 4),
+        "bleu4_uncased": round(np.mean(bleu_uncased_output["bleu"]), 4),
+        "sacre_bleu": round(np.mean(sacrebleu_output["score"]), 4),
+    }
 
 # set training arguments - these params are not really tuned, feel free to change
 training_args = Seq2SeqTrainingArguments(
-    output_dir="~/my_data/translation/output_dir",
+    output_dir="~/my_data/translation/foo",
     evaluation_strategy="steps",
     save_strategy="steps",
     per_device_train_batch_size=batch_size,
@@ -145,8 +177,8 @@ trainer = Seq2SeqTrainer(
     #tokenizer=tokenizer,
     args=training_args,
     compute_metrics=compute_metrics,
-    train_dataset=val_data,
-    eval_dataset=val_data,
+    train_dataset=test_data,
+    eval_dataset=test_data,
 )
 
 trainer.evaluate()

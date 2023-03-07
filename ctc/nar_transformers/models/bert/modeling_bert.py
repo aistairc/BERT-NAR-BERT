@@ -960,10 +960,7 @@ class BertModel(BertPreTrainedModel):
 
         # For latent z
         if not config.is_decoder:
-            if config.is_vae:
-                self.linear = nn.Linear(config.hidden_size, 2 * config.latent_size)
-            else:
-                self.linear = nn.Linear(config.hidden_size, config.latent_size)
+            self.linear = nn.Linear(config.hidden_size, 2 * config.latent_size)
 
         # Initialize weights and apply final processing
         self.post_init()
@@ -1109,8 +1106,8 @@ class BertModel(BertPreTrainedModel):
         pooled_output = self.pooler(sequence_output) if self.pooler is not None else None
 
         if not self.config.is_decoder:
-            #latent = nn.functional.gelu(self.linear(sequence_output))
             latent = self.linear(sequence_output)
+            #latent = nn.functional.gelu(self.linear(sequence_output))
 
         if not return_dict:
             return (sequence_output, pooled_output) + encoder_outputs[1:]

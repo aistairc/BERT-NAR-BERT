@@ -165,63 +165,6 @@ def shift_tokens_right(input_ids: torch.Tensor, pad_token_id: int, decoder_start
 
     return shifted_input_ids
 
-class RMSELoss(nn.Module):
-    def __init__(self, eps=1e-10):
-        super().__init__()
-        self.mse = nn.MSELoss()
-        self.eps = eps
-    def forward(self, yhat, y):
-        loss = torch.sqrt(self.mse(yhat, y.float()) + self.eps)
-        return loss
-
-# Length Transformer
-class LengthConverter(nn.Module):
-    """
-    Implementation of Length Transformation.
-    """
-
-    def __init__(self, length_range):
-        super(LengthConverter, self).__init__()
-        self.sigma = nn.Parameter(torch.tensor(1., dtype=torch.float))
-        self.length_range = length_range
-
-    def forward(self, z, ls, z_mask):
-        """
-        Adjust the number of vectors in `z` according to `ls`.
-        Return the new `z` and its mask.
-        Args:
-            z - latent variables, shape: B x L_x x hidden
-            ls - target lengths, shape: B
-            z_mask - latent mask, shape: B x L_x
-        """
-        n = z_mask.sum(1)
-        #arange_l = torch.arange(ls.max().long()).cuda()
-        arange_l = torch.arange(z.size(1)).cuda()
-        arange_z = torch.arange(z.size(1)).cuda()
-        arange_l = arange_l[None, :].repeat(z.size(0), 1).float()
-        mu = arange_l * n[:, None].float() / ls[:, None].float()
-        #arange_z = arange_z[None, None, :].repeat(z.size(0), ls.max().long(), 1).float()
-        arange_z = arange_z[None, None, :].repeat(z.size(0), z.size(1), 1).float()
-        if True:
-            arange_l = arange_l.half()
-            mu = mu.half()
-            arange_z = arange_z.half()
-        if True:
-            logits = - torch.pow(arange_z - mu[:, :, None], 2) / (2. * self.sigma ** 2)
-        else:
-            distance = torch.clamp(arange_z - mu[:, :, None], -sefl.length_range, self.length_range)
-            logits = - torch.pow(2, distance) / (2. * self.sigma ** 2)
-        logits = logits * z_mask[:, None, :] - (self.length_range-1) * (1 - z_mask[:, None, :])
-        weight = torch.softmax(logits, 2)
-        z_prime = (z[:, None, :, :] * weight[:, :, :, None]).sum(2)
-        if True:
-            z_prime_mask = (arange_l < ls[:, None].half()).half()
-        else:
-            z_prime_mask = (arange_l < ls[:, None].float()).float()
-        z_prime = z_prime * z_prime_mask[:, :, None]
-
-        return z_prime, z_prime_mask
-
 
 @add_start_docstrings(ENCODER_DECODER_START_DOCSTRING)
 class EncoderDecoderModel(PreTrainedModel):
@@ -263,36 +206,17 @@ class EncoderDecoderModel(PreTrainedModel):
         super().__init__(config)
 
         if encoder is None:
-            #from ..auto.modeling_auto import AutoModel
-            #encoder = AutoModel.from_config(config.encoder)
-
             from ..bert.modeling_bert import BertModel
             encoder = BertModel(config.encoder)
 
         if decoder is None:
-            #from ..auto.modeling_auto import AutoModelForCausalLM
-            #decoder = AutoModelForCausalLM.from_config(config.decoder)
-
             from ..bert.modeling_bert import BertLMHeadModel
             decoder = BertLMHeadModel(config.decoder)
 
         self.encoder = encoder
         self.decoder = decoder
 
-        """
-        """
-        # Configuration for length prediction
-        self.length_range = 100
-        self.mode = 'classification'
-
-        if self.mode == 'regression':
-            self.length_predictor = nn.Linear(config.encoder.hidden_size, 1, bias=False)
-        elif self.mode == 'classification':
-            #self.length_predictor = nn.Linear(config.encoder.hidden_size, self.length_range)
-            self.length_predictor = nn.Linear(config.encoder.latent_size, self.length_range)
-        else:
-            raise NotImplementedError()
-        self.length_converter = LengthConverter(self.length_range)
+        self.tau = nn.Parameter(torch.tensor(1.0))
 
         if self.encoder.config.to_dict() != self.config.encoder.to_dict():
             logger.warning(
@@ -680,18 +604,16 @@ class EncoderDecoderModel(PreTrainedModel):
         elif isinstance(encoder_outputs, tuple):
             encoder_outputs = BaseModelOutput(*encoder_outputs)
 
+        bs, max_seq_len = input_ids.size()
+
         encoder_hidden_states = encoder_outputs[0]
-        if self.config.is_token_level_z:
-            prior_states = encoder_hidden_states
-        else:
-            prior_states = encoder_outputs[1]
         x_mask = attention_mask
         if self.config.is_vae:
             # Connect hidden feature to the latent space
             mu, logvar = encoder_outputs.latent.chunk(2, -1)
 
             if self.training:
-                if True:
+                if False:
                     n_samples = 5
                     bs, seq_len, hidden_size = mu.size()
                     mu_expd = mu.unsqueeze(1).expand(bs, n_samples, seq_len, hidden_size)
@@ -708,21 +630,17 @@ class EncoderDecoderModel(PreTrainedModel):
                     z = mu_expd + eps_expd * std_expd
                     z = z[torch.arange(bs), min_indices]
                 else:
-                    eps = torch.randn_like(std)
                     std = (0.5 * logvar).exp()
+                    eps = torch.randn_like(std)
                     loss_kl = 0.5 * (mu.pow(2) + logvar.exp() - logvar - 1)
+                    loss_kl = ((loss_kl.sum(-1) * x_mask).sum(1) / x_mask.sum(1)).mean()
                     z = mu + eps * std
             else:
                 z = mu
                 loss_kl = torch.tensor(0.0)
         else:
-            z = encoder_outputs.latent
+            z, _ = encoder_outputs.latent.chunk(2, -1)
             loss_kl = torch.tensor(0.0)
-
-        if self.config.is_token_level_z:
-            latent_z = z
-        else:
-            latent_z = z.unsqueeze(1).repeat_interleave(seq_len, dim=1)
 
         # optionally project encoder_hidden_states
         if (
@@ -736,10 +654,34 @@ class EncoderDecoderModel(PreTrainedModel):
                 labels, self.config.pad_token_id, self.config.decoder_start_token_id
             )
 
+        if self.config.decoder_input_type == "all_pad":
+            final_attention_mask = (attention_mask * 0) + 1
+
+        elif self.config.decoder_input_type == "upsampled_pad":
+            lengths = attention_mask.sum(1)
+            upsampled_lengths = (lengths * self.config.upsampling_ratio).long()
+            upsampled_attention_mask = torch.where(torch.arange(max_seq_len).cuda() < upsampled_lengths[:,None], 1, 0)
+            final_attention_mask = upsampled_attention_mask
+
+        elif self.config.decoder_input_type == "upsampled_z":
+            lengths = attention_mask.sum(1)
+            upsampled_lengths = (lengths * self.config.upsampling_ratio).long()
+            upsampled_attention_mask = torch.where(torch.arange(max_seq_len).cuda() < upsampled_lengths[:,None], 1, 0)
+
+            w_table = - torch.abs(torch.arange(max_seq_len)[None, :].repeat(bs, max_seq_len, 1).cuda() -
+                                  torch.arange(max_seq_len)[:, None].repeat(bs, 1, max_seq_len).cuda()) / self.tau
+            w_table += (upsampled_attention_mask[:, None] - 1) * 1e+3
+            w_table = w_table.softmax(-1)
+            z = torch.bmm(w_table, z * attention_mask[:, :, None])
+            final_attention_mask = upsampled_attention_mask
+
+        else:
+            raise ValueError()
+
         # Decode
         decoder_outputs = self.decoder(
-            input_ids=decoder_input_ids, # In fact, decoder_input_ids is not used
-            attention_mask=attention_mask,
+            input_ids=decoder_input_ids, # In fact, decoder_input_ids are not used
+            attention_mask=final_attention_mask,
             encoder_hidden_states=encoder_hidden_states,
             encoder_attention_mask=attention_mask,
             inputs_embeds=decoder_inputs_embeds,
@@ -747,29 +689,27 @@ class EncoderDecoderModel(PreTrainedModel):
             output_hidden_states=output_hidden_states,
             use_cache=use_cache,
             past_key_values=past_key_values,
-            latent=latent_z,
+            latent=z,
             return_dict=return_dict,
             **kwargs_decoder,
         )
 
         # Compute loss independent from decoder (as some shift the logits inside them)
         loss = None
-        loss_ctc = None
         if labels is not None:
             warnings.warn(DEPRECATION_WARNING, FutureWarning)
             logits = decoder_outputs.logits if return_dict else decoder_outputs[0]
-            loss_fct = CrossEntropyLoss()
-            loss = loss_fct(logits.reshape(-1, self.decoder.config.vocab_size), labels.view(-1))
+            #loss_fct = CrossEntropyLoss()
+            #loss = loss_fct(logits.reshape(-1, self.decoder.config.vocab_size), labels.view(-1))
 
-            bs, input_seq_len = input_ids.size()
             input_log_probs = logits.log_softmax(-1).transpose(0, 1)
-            input_lengths = (input_seq_len * torch.ones(bs)).int()
+            input_lengths = final_attention_mask.sum(1).int()
             targets = decoder_input_ids.int()
             target_lengths = decoder_attention_mask.sum(1).int()
 
             loss_ctc_fct = nn.CTCLoss(zero_infinity=True)
             with torch.backends.cudnn.flags(enabled=False):
-                loss_ctc = loss_ctc_fct(input_log_probs, targets, input_lengths, target_lengths)
+                loss = loss_ctc_fct(input_log_probs, targets, input_lengths, target_lengths)
 
         if not return_dict:
             if loss is not None:
@@ -779,7 +719,7 @@ class EncoderDecoderModel(PreTrainedModel):
 
         return Seq2SeqLMOutput(
             loss=loss,
-            loss_length=loss_ctc,
+            loss_length=torch.tensor(0.0), # Length prediction loss is not used for CTC
             loss_kl=loss_kl,
             logits=decoder_outputs.logits,
             past_key_values=decoder_outputs.past_key_values,
