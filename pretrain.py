@@ -37,9 +37,17 @@ def process_wiki_to_model_inputs(batch):
 
     return batch
 
-all_data = datasets.load_dataset("wikipedia", "20220301.en", split="train")
+train_data = datasets.load_dataset("wikipedia", "20220301.en", split="train[:99%]")
+val_data = datasets.load_dataset("wikipedia", "20220301.en", split="train[-1%:]")
 
-all_data = all_data.map(
+train_data = train_data.map(
+    process_wiki_to_model_inputs,
+    batched=True,
+    batch_size=1024,
+    remove_columns=["text"],
+    num_proc=32, # set to the number of CPU cores in AF node
+)
+train_data = train_data.map(
     process_wiki_to_model_inputs,
     batched=True,
     batch_size=1024,
@@ -47,7 +55,6 @@ all_data = all_data.map(
     num_proc=32, # set to the number of CPU cores in AF node
 )
 
-train_data = all_data.select(range(len(all_data)))
 val_data = all_data.select(range(1000))
 
 train_data.set_format(
