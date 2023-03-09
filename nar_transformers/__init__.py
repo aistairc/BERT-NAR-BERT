@@ -1310,7 +1310,6 @@ else:
         ]
     )
     _import_structure["models.encoder_decoder"].append("EncoderDecoderModel")
-    _import_structure["models.encoder_decoder"].append("EncoderDecoderPosteriorModel")
     _import_structure["models.ernie"].extend(
         [
             "ERNIE_PRETRAINED_MODEL_ARCHIVE_LIST",
@@ -4369,7 +4368,7 @@ if TYPE_CHECKING:
             ElectraPreTrainedModel,
             load_tf_weights_in_electra,
         )
-        from .models.encoder_decoder import EncoderDecoderModel, EncoderDecoderPosteriorModel
+        from .models.encoder_decoder import EncoderDecoderModel
         from .models.ernie import (
             ERNIE_PRETRAINED_MODEL_ARCHIVE_LIST,
             ErnieForCausalLM,

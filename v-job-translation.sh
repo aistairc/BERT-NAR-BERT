@@ -1,27 +1,23 @@
 #!/bin/bash
 
 #$ -l rt_F=2
-#$ -l h_rt=30:00:00
+#$ -l h_rt=20:00:00
 #$ -j y
 #$ -cwd
 
 source /etc/profile.d/modules.sh
-
+source ~/venv/pytorch/bin/activate
 module load gcc/9.3.0
 module load python/3.8/3.8.13
 module load cuda/11.1/11.1.1
 module load cudnn/8.0/8.0.5
 module load nccl/2.8/2.8.4-1
 
-source ~/venv/pytorch/bin/activate
-
 export OMP_NUM_THREADS=1
 export NUM_GPUS_PER_NODE=$(nvidia-smi --query-gpu=name --format=csv,noheader | wc -l)
-
 export HF_DATASETS_CACHE="/scratch/aae15163zd/cache/huggingface/datasets"
 
-#python_cmd="multilingual-en-de.py"
-python_cmd="train-en-de.py"
+python_cmd="train-translation.py"
 
 # launch on slave nodes
 node_rank=1

@@ -216,7 +216,8 @@ class EncoderDecoderModel(PreTrainedModel):
         self.encoder = encoder
         self.decoder = decoder
 
-        self.tau = nn.Parameter(torch.tensor(1.0))
+        #self.tau = nn.Parameter(torch.tensor(1.0))
+        self.tau = nn.Parameter(torch.tensor(0.5))
 
         if self.encoder.config.to_dict() != self.config.encoder.to_dict():
             logger.warning(
@@ -611,33 +612,14 @@ class EncoderDecoderModel(PreTrainedModel):
         if self.config.is_vae:
             # Connect hidden feature to the latent space
             mu, logvar = encoder_outputs.latent.chunk(2, -1)
-
+            loss_kl = 0.5 * (mu.pow(2) + logvar.exp() - logvar - 1)
+            loss_kl = ((loss_kl.sum(-1) * x_mask).sum(1) / x_mask.sum(1)).mean()
             if self.training:
-                if False:
-                    n_samples = 5
-                    bs, seq_len, hidden_size = mu.size()
-                    mu_expd = mu.unsqueeze(1).expand(bs, n_samples, seq_len, hidden_size)
-                    logvar_expd = logvar.unsqueeze(1).expand(bs, n_samples, seq_len, hidden_size)
-                    std_expd = (0.5 * logvar_expd).exp()
-                    eps_expd = torch.randn_like(std_expd)
-
-                    loss_kl = 0.5 * (mu_expd.pow(2) + logvar_expd.exp() - logvar_expd - 1)
-                    x_mask_expd = x_mask.unsqueeze(1).expand(bs, n_samples, seq_len)
-                    loss_kl = ((loss_kl.sum(-1) * x_mask_expd).sum(2) / x_mask_expd.sum(2))
-                    loss_kl, min_indices = torch.min(loss_kl, dim=1)
-                    loss_kl = loss_kl.mean()
-
-                    z = mu_expd + eps_expd * std_expd
-                    z = z[torch.arange(bs), min_indices]
-                else:
-                    std = (0.5 * logvar).exp()
-                    eps = torch.randn_like(std)
-                    loss_kl = 0.5 * (mu.pow(2) + logvar.exp() - logvar - 1)
-                    loss_kl = ((loss_kl.sum(-1) * x_mask).sum(1) / x_mask.sum(1)).mean()
-                    z = mu + eps * std
+                std = (0.5 * logvar).exp()
+                eps = torch.randn_like(std)
+                z = mu + eps * std
             else:
                 z = mu
-                loss_kl = torch.tensor(0.0)
         else:
             z, _ = encoder_outputs.latent.chunk(2, -1)
             loss_kl = torch.tensor(0.0)
@@ -654,34 +636,10 @@ class EncoderDecoderModel(PreTrainedModel):
                 labels, self.config.pad_token_id, self.config.decoder_start_token_id
             )
 
-        if self.config.decoder_input_type == "all_pad":
-            final_attention_mask = (attention_mask * 0) + 1
-
-        elif self.config.decoder_input_type == "upsampled_pad":
-            lengths = attention_mask.sum(1)
-            upsampled_lengths = (lengths * self.config.upsampling_ratio).long()
-            upsampled_attention_mask = torch.where(torch.arange(max_seq_len).cuda() < upsampled_lengths[:,None], 1, 0)
-            final_attention_mask = upsampled_attention_mask
-
-        elif self.config.decoder_input_type == "upsampled_z":
-            lengths = attention_mask.sum(1)
-            upsampled_lengths = (lengths * self.config.upsampling_ratio).long()
-            upsampled_attention_mask = torch.where(torch.arange(max_seq_len).cuda() < upsampled_lengths[:,None], 1, 0)
-
-            w_table = - torch.abs(torch.arange(max_seq_len)[None, :].repeat(bs, max_seq_len, 1).cuda() -
-                                  torch.arange(max_seq_len)[:, None].repeat(bs, 1, max_seq_len).cuda()) / self.tau
-            w_table += (upsampled_attention_mask[:, None] - 1) * 1e+3
-            w_table = w_table.softmax(-1)
-            z = torch.bmm(w_table, z * attention_mask[:, :, None])
-            final_attention_mask = upsampled_attention_mask
-
-        else:
-            raise ValueError()
-
         # Decode
         decoder_outputs = self.decoder(
             input_ids=decoder_input_ids, # In fact, decoder_input_ids are not used
-            attention_mask=final_attention_mask,
+            attention_mask=attention_mask,
             encoder_hidden_states=encoder_hidden_states,
             encoder_attention_mask=attention_mask,
             inputs_embeds=decoder_inputs_embeds,
@@ -689,8 +647,8 @@ class EncoderDecoderModel(PreTrainedModel):
             output_hidden_states=output_hidden_states,
             use_cache=use_cache,
             past_key_values=past_key_values,
-            latent=z,
             return_dict=return_dict,
+            latent=z,
             **kwargs_decoder,
         )
 
@@ -703,7 +661,7 @@ class EncoderDecoderModel(PreTrainedModel):
             #loss = loss_fct(logits.reshape(-1, self.decoder.config.vocab_size), labels.view(-1))
 
             input_log_probs = logits.log_softmax(-1).transpose(0, 1)
-            input_lengths = final_attention_mask.sum(1).int()
+            input_lengths = (attention_mask * 0 + 1).sum(1).int() # all input lengths are set to max_seq_len
             targets = decoder_input_ids.int()
             target_lengths = decoder_attention_mask.sum(1).int()
 

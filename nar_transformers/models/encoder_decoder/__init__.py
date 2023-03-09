@@ -36,7 +36,6 @@ except OptionalDependencyNotAvailable:
     pass
 else:
     _import_structure["modeling_encoder_decoder"] = ["EncoderDecoderModel"]
-    _import_structure["modeling_encoder_decoder_posterior"] = ["EncoderDecoderPosteriorModel"]
 
 try:
     if not is_tf_available():
@@ -64,7 +63,6 @@ if TYPE_CHECKING:
         pass
     else:
         from .modeling_encoder_decoder import EncoderDecoderModel
-        from .modeling_encoder_decoder_posterior import EncoderDecoderPosteriorModel
 
     try:
         if not is_tf_available():

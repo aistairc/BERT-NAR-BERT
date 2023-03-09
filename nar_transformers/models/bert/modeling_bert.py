@@ -1107,7 +1107,6 @@ class BertModel(BertPreTrainedModel):
 
         if not self.config.is_decoder:
             latent = self.linear(sequence_output)
-            #latent = nn.functional.gelu(self.linear(sequence_output))
 
         if not return_dict:
             return (sequence_output, pooled_output) + encoder_outputs[1:]
