@@ -9,13 +9,15 @@ from nar_transformers import EncoderDecoderConfig, EncoderDecoderModel
 from nar_transformers import Seq2SeqTrainingArguments, Seq2SeqTrainer
 
 import wandb
-os.environ["WANDB_PROJECT"] = "translation"
+os.environ["WANDB_PROJECT"] = "translation_dev"
 
 
 src_model_name = "bert-base-cased"
 tgt_model_name = "bert-base-german-cased"
+#src_model_name = "bert-base-multilingual-cased"
+#tgt_model_name = "bert-base-multilingual-cased"
 
-batch_size = 64  # change to 16 for full training
+batch_size = 128  # change to 16 for full training
 max_length = 128 # 128 actually works better for MT
 latent_size = 8
 
@@ -73,7 +75,8 @@ train_data.set_format(
 val_data.set_format(
     type="torch", columns=["input_ids", "attention_mask", "decoder_input_ids", "decoder_attention_mask", "labels"],
 )
-
+#distilled_train_data = datasets.load_from_disk("/scratch/aae15163zd/cache/huggingface/datasets/wmt14-en-de-msl128-multilingual-bert-base-cased/distilled_train/")
+distilled_train_data = datasets.load_from_disk("/scratch/aae15163zd/cache/huggingface/datasets/wmt14-en-de-msl128-unilingual-bert-base-cased/distilled_train/")["train"]
 
 src_tokenizer.bos_token = src_tokenizer.cls_token
 src_tokenizer.eos_token = src_tokenizer.sep_token
@@ -87,6 +90,7 @@ config = EncoderDecoderConfig.from_encoder_decoder_configs(encoder_config, decod
 
 model = EncoderDecoderModel(config=config)
 model.config.is_vae = True
+model.config.kl_threshold = 0.5
 
 # set special tokens
 model.config.decoder_start_token_id = tgt_tokenizer.bos_token_id
@@ -139,7 +143,7 @@ def compute_metrics(pred):
 
 # set training arguments - these params are not really tuned, feel free to change
 training_args = Seq2SeqTrainingArguments(
-    output_dir="~/my_data/translation/wmt14en-de",
+    output_dir="~/my_data/translation/foo",
     evaluation_strategy="steps",
     save_strategy="steps",
     per_device_train_batch_size=batch_size,
@@ -150,13 +154,13 @@ training_args = Seq2SeqTrainingArguments(
     eval_steps=500,  # set to 8000 for full training
     warmup_steps=10_000,  # set to 2000 for full training
     learning_rate=1e-04,
-    #num_train_epochs=10.0, # seems like the default is only 3.0
-    max_steps=200_000,
+    max_steps=100_000,
     overwrite_output_dir=True,
     save_total_limit=1,
     fp16=True,
     report_to="wandb",
-    run_name="wmt14en-de",
+    run_name="cls-th0.5",
+    gradient_accumulation_steps=2,
 )
 
 # instantiate trainer
@@ -164,7 +168,8 @@ trainer = Seq2SeqTrainer(
     model=model,
     args=training_args,
     compute_metrics=compute_metrics,
-    train_dataset=train_data,
+    #train_dataset=train_data,
+    train_dataset=distilled_train_data,
     eval_dataset=val_data,
 )
 

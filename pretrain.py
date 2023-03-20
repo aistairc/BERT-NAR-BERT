@@ -1,5 +1,6 @@
 import os
 import datasets
+from datasets import load_from_disk
 import transformers
 from transformers import DataCollatorForLanguageModeling, DataCollatorForPermutationLanguageModeling
 import numpy as np
@@ -14,8 +15,11 @@ import wandb
 os.environ["WANDB_PROJECT"] = "pre-training"
 
 
-model_name = "bert-base-cased"
-batch_size = 16  #
+cached_data_dir = "/scratch/aae15163zd/cache/wikipedia-20220301en-bert-base-cased-512/"
+with open(os.path.join(cached_data_dir, "model_name.txt"), "r") as f:
+    model_name = f.read()
+#model_name = "bert-base-cased"
+batch_size = 20  #
 max_length = 512 #
 latent_size = 8
 
@@ -37,6 +41,7 @@ def process_wiki_to_model_inputs(batch):
 
     return batch
 
+"""
 train_data = datasets.load_dataset("wikipedia", "20220301.en", split="train[:99%]")
 val_data = datasets.load_dataset("wikipedia", "20220301.en", split="train[-1%:]")
 
@@ -47,22 +52,25 @@ train_data = train_data.map(
     remove_columns=["text"],
     num_proc=32, # set to the number of CPU cores in AF node
 )
-train_data = train_data.map(
+val_data = val_data.map(
     process_wiki_to_model_inputs,
     batched=True,
     batch_size=1024,
     remove_columns=["text"],
     num_proc=32, # set to the number of CPU cores in AF node
 )
-
-val_data = all_data.select(range(1000))
-
 train_data.set_format(
     type="torch", columns=["input_ids", "attention_mask", "decoder_input_ids", "decoder_attention_mask", "labels"],
 )
 val_data.set_format(
     type="torch", columns=["input_ids", "attention_mask", "decoder_input_ids", "decoder_attention_mask", "labels"],
 )
+"""
+train_data = load_from_disk(os.path.join(cached_data_dir, "train"))
+val_data = load_from_disk(os.path.join(cached_data_dir, "valid"))
+
+val_data = val_data.select(range(1000))
+
 
 tokenizer.bos_token = tokenizer.cls_token
 tokenizer.eos_token = tokenizer.sep_token
@@ -73,7 +81,7 @@ encoder_config.latent_size, decoder_config.latent_size = latent_size, latent_siz
 config = EncoderDecoderConfig.from_encoder_decoder_configs(encoder_config, decoder_config)
 
 model = EncoderDecoderModel(config=config)
-model.config.is_vae = True
+model.config.is_vae = False
 
 # set special tokens
 model.config.decoder_start_token_id = tokenizer.bos_token_id
@@ -94,8 +102,8 @@ model.config.num_beam_groups = 0
 
 # set training arguments - these params are not really tuned, feel free to change
 training_args = Seq2SeqTrainingArguments(
-    output_dir="~/my_data/pretraining/wiki-en-MLM",
-    evaluation_strategy="no",
+    output_dir="~/my_data/pretraining/wikipedia-en-bert-base-cased-noval-mlm/",
+    evaluation_strategy="steps",
     save_strategy="steps",
     per_device_train_batch_size=batch_size,
     per_device_eval_batch_size=batch_size,
@@ -105,28 +113,32 @@ training_args = Seq2SeqTrainingArguments(
     eval_steps=1_000,  # set to 8000 for full training
     warmup_steps=10_000,  # set to 2000 for full training
     learning_rate=1e-04,
-    #num_train_epochs=1.0, # seems like the default is only 3.0
-    max_steps=300_000,
+    num_train_epochs=10.0, # seems like the default is only 3.0
+    #max_steps=300_000,
     overwrite_output_dir=True,
-    save_total_limit=1,
+    save_total_limit=None,
     fp16=True,
     report_to="wandb",
-    run_name="wiki-en-MLM",
+    run_name="wikipedia-en-bert-base-cached-noval-mlm",
 )
 
 mlm_data_collator = DataCollatorForLanguageModeling(
     tokenizer=tokenizer, mlm=True, mlm_probability=0.15,
 )
 
+def compute_metrics(pred):
+    return {"None": 0.0}
+
 # instantiate trainer
 trainer = Seq2SeqTrainer(
     model=model,
     tokenizer=tokenizer,
     args=training_args,
+    compute_metrics=compute_metrics,
     train_dataset=train_data,
     eval_dataset=val_data,
     data_collator=mlm_data_collator,
 )
 
-trainer.train()
-#trainer.train(resume_from_checkpoint=True)
+#trainer.train()
+trainer.train(resume_from_checkpoint=True)

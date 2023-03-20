@@ -294,7 +294,10 @@ class BertLatentEmbeddings(nn.Module):
             inputs_embeds = self.word_embeddings(input_ids)
         token_type_embeddings = self.token_type_embeddings(token_type_ids)
 
-        embeddings = latent + token_type_embeddings
+        if latent is None:
+            embeddings = inputs_embeds + token_type_embeddings
+        else:
+            embeddings = latent + token_type_embeddings
         if self.position_embedding_type == "absolute":
             position_embeddings = self.position_embeddings(position_ids)
             embeddings += position_embeddings
@@ -1246,7 +1249,7 @@ class BertLMHeadModel(BertPreTrainedModel):
         if not config.is_decoder:
             logger.warning("If you want to use `BertLMHeadModel` as a standalone, add `is_decoder=True.`")
 
-        self.bert = BertModel(config, add_pooling_layer=False)
+        self.bert = BertModel(config, add_pooling_layer=True)
         self.cls = BertOnlyMLMHead(config)
 
         self.linear = nn.Linear(config.latent_size, config.hidden_size)
@@ -1313,7 +1316,8 @@ class BertLMHeadModel(BertPreTrainedModel):
         if labels is not None:
             use_cache = False
 
-        latent = nn.functional.gelu(self.linear(latent))
+        if latent is not None:
+            latent = nn.functional.gelu(self.linear(latent))
 
         outputs = self.bert(
             input_ids,
@@ -1333,15 +1337,17 @@ class BertLMHeadModel(BertPreTrainedModel):
         )
 
         sequence_output = outputs[0]
-        prediction_scores = self.cls(sequence_output)
+        pooled_output = outputs[1]
+        #prediction_scores = self.cls(sequence_output)
+        prediction_scores = None
 
         lm_loss = None
-        if labels is not None:
-            # we are doing next-token prediction; shift prediction scores and input ids by one
-            shifted_prediction_scores = prediction_scores[:, :-1, :].contiguous()
-            labels = labels[:, 1:].contiguous()
-            loss_fct = CrossEntropyLoss()
-            lm_loss = loss_fct(shifted_prediction_scores.view(-1, self.config.vocab_size), labels.view(-1))
+        #if labels is not None:
+        #    # we are doing next-token prediction; shift prediction scores and input ids by one
+        #    shifted_prediction_scores = prediction_scores[:, :-1, :].contiguous()
+        #    labels = labels[:, 1:].contiguous()
+        #    loss_fct = CrossEntropyLoss()
+        #    lm_loss = loss_fct(shifted_prediction_scores.view(-1, self.config.vocab_size), labels.view(-1))
 
         if not return_dict:
             output = (prediction_scores,) + outputs[2:]
@@ -1354,6 +1360,7 @@ class BertLMHeadModel(BertPreTrainedModel):
             hidden_states=outputs.hidden_states,
             attentions=outputs.attentions,
             cross_attentions=outputs.cross_attentions,
+            pooler_output=pooled_output,
         )
 
     def prepare_inputs_for_generation(self, input_ids, past=None, attention_mask=None, use_cache=True, **model_kwargs):

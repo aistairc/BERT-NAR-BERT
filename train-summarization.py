@@ -9,11 +9,11 @@ from nar_transformers import EncoderDecoderConfig, EncoderDecoderModel
 from nar_transformers import Seq2SeqTrainingArguments, Seq2SeqTrainer
 
 import wandb
-os.environ["WANDB_PROJECT"] = "summarization"
+os.environ["WANDB_PROJECT"] = "summarization-dev"
 
 
 model_name = "bert-base-cased"
-batch_size = 16  # change to 16 for full training
+batch_size = 20  # change to 16 for full training
 max_length = 512 # 128 actually works better for MT
 latent_size = 8
 
@@ -71,10 +71,10 @@ config = EncoderDecoderConfig.from_encoder_decoder_configs(encoder_config, decod
 
 model = EncoderDecoderModel(config=config)
 #model = EncoderDecoderModel.from_pretrained(
-#    "/groups/gac50543/migrated_from_SFA_GPFS/asada/pretraining/ctc-wiki-en-maskedLM/checkpoint-25000",
-#    config=config,
+#    "/groups/gac50543/migrated_from_SFA_GPFS/asada/pretraining/wikipedia-en-bert-base-cased-noval-mlm/checkpoint-119892/",
 #)
 model.config.is_vae = True
+model.config.kl_threshold = 0.1
 
 # set special tokens
 model.config.decoder_start_token_id = tokenizer.bos_token_id
@@ -126,17 +126,16 @@ def compute_metrics(pred):
 
 # set training arguments - these params are not really tuned, feel free to change
 training_args = Seq2SeqTrainingArguments(
-    output_dir="~/my_data/summarization/xsum",
+    output_dir="~/my_data/summarization/bar",
     evaluation_strategy="steps",
     save_strategy="steps",
     per_device_train_batch_size=batch_size,
     per_device_eval_batch_size=batch_size,
     predict_with_generate=True,
-    logging_steps=1_000,  # set to 1000 for full training
+    logging_steps=500,  # set to 1000 for full training
     save_steps=5_000,  # set to 500 for full training
-    eval_steps=1_000,  # set to 8000 for full training
-    #warmup_steps=10000,  # set to 2000 for full training
-    warmup_ratio=0.10,
+    eval_steps=500,  # set to 8000 for full training
+    warmup_steps=10_000,  # set to 2000 for full training
     learning_rate=1e-04,
     #num_train_epochs=10.0, # seems like the default is only 3.0
     max_steps=100_000,
@@ -144,7 +143,8 @@ training_args = Seq2SeqTrainingArguments(
     save_total_limit=1,
     fp16=True,
     report_to="wandb",
-    run_name="xsum",
+    run_name="xsum-vae-th0.1",
+    gradient_accumulation_steps=1,
 )
 
 # instantiate trainer

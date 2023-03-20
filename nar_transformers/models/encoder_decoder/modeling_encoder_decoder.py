@@ -219,6 +219,8 @@ class EncoderDecoderModel(PreTrainedModel):
         #self.tau = nn.Parameter(torch.tensor(1.0))
         self.tau = nn.Parameter(torch.tensor(0.5))
 
+        self.cls = nn.Linear(config.decoder.hidden_size, config.decoder.vocab_size)
+
         if self.encoder.config.to_dict() != self.config.encoder.to_dict():
             logger.warning(
                 f"Config of the encoder: {self.encoder.__class__} is overwritten by shared encoder config:"
@@ -613,6 +615,10 @@ class EncoderDecoderModel(PreTrainedModel):
             # Connect hidden feature to the latent space
             mu, logvar = encoder_outputs.latent.chunk(2, -1)
             loss_kl = 0.5 * (mu.pow(2) + logvar.exp() - logvar - 1)
+            # KL thresholding
+            th = torch.tensor(self.config.kl_threshold).cuda().float()
+            loss_kl = torch.where(loss_kl > th, loss_kl, th)
+
             loss_kl = ((loss_kl.sum(-1) * x_mask).sum(1) / x_mask.sum(1)).mean()
             if self.training:
                 std = (0.5 * logvar).exp()
@@ -644,23 +650,59 @@ class EncoderDecoderModel(PreTrainedModel):
             encoder_attention_mask=attention_mask,
             inputs_embeds=decoder_inputs_embeds,
             output_attentions=output_attentions,
-            output_hidden_states=output_hidden_states,
+            output_hidden_states=True,
             use_cache=use_cache,
             past_key_values=past_key_values,
             return_dict=return_dict,
             latent=z,
             **kwargs_decoder,
         )
+        decoder_pooled_outputs = decoder_outputs.pooler_output
+        decoder_last_hidden_states = decoder_outputs.hidden_states[-1]
+        loss_sim = torch.tensor(0.0)
+        loss_g = torch.tensor(0.0)
+        #if self.training:
+        if False:
+            gold_outputs = self.decoder(
+                input_ids=decoder_input_ids,
+                attention_mask=decoder_attention_mask,
+                encoder_hidden_states=encoder_hidden_states,
+                encoder_attention_mask=attention_mask,
+                inputs_embeds=decoder_inputs_embeds,
+                output_attentions=output_attentions,
+                output_hidden_states=True,
+                use_cache=use_cache,
+                past_key_values=past_key_values,
+                return_dict=return_dict,
+                latent=None,
+                **kwargs_decoder,
+            )
+            gold_pooled_outputs = gold_outputs.pooler_output
+            gold_last_hidden_states = gold_outputs.hidden_states[-1]
+            #logits_g = gold_outputs.logits
+            logits_g = self.cls(gold_last_hidden_states)
+            loss_ctc_fct = nn.CTCLoss(zero_infinity=True)
+            input_log_probs = logits_g.log_softmax(-1).transpose(0, 1)
+            input_lengths = (attention_mask * 0 + 1).sum(1).int() # all input lengths are set to max_seq_len
+            targets = decoder_input_ids.int()
+            target_lengths = decoder_attention_mask.sum(1).int()
+            with torch.backends.cudnn.flags(enabled=False):
+                loss_g = loss_ctc_fct(input_log_probs, targets, input_lengths, target_lengths)
+            sim_fct = nn.CosineSimilarity(dim=-1)
+            #loss_sim = - sim_fct(decoder_pooled_outputs, gold_pooled_outputs).mean()
+            loss_sim = - sim_fct(decoder_last_hidden_states, gold_last_hidden_states).mean()
 
         # Compute loss independent from decoder (as some shift the logits inside them)
         loss = None
+        logits = self.cls(decoder_last_hidden_states)
         if labels is not None:
             warnings.warn(DEPRECATION_WARNING, FutureWarning)
-            logits = decoder_outputs.logits if return_dict else decoder_outputs[0]
+            #logits = decoder_outputs.logits if return_dict else decoder_outputs[0]
             #loss_fct = CrossEntropyLoss()
             #loss = loss_fct(logits.reshape(-1, self.decoder.config.vocab_size), labels.view(-1))
 
-            input_log_probs = logits.log_softmax(-1).transpose(0, 1)
+            #input_log_probs = logits.log_softmax(dim=-1, dtype=torch.float32).transpose(0, 1)
+            input_log_probs = logits.log_softmax(dim=-1).transpose(0, 1)
             input_lengths = (attention_mask * 0 + 1).sum(1).int() # all input lengths are set to max_seq_len
             targets = decoder_input_ids.int()
             target_lengths = decoder_attention_mask.sum(1).int()
@@ -668,6 +710,7 @@ class EncoderDecoderModel(PreTrainedModel):
             loss_ctc_fct = nn.CTCLoss(zero_infinity=True)
             with torch.backends.cudnn.flags(enabled=False):
                 loss = loss_ctc_fct(input_log_probs, targets, input_lengths, target_lengths)
+            loss += loss_g
 
         if not return_dict:
             if loss is not None:
@@ -677,9 +720,11 @@ class EncoderDecoderModel(PreTrainedModel):
 
         return Seq2SeqLMOutput(
             loss=loss,
-            loss_length=torch.tensor(0.0), # Length prediction loss is not used for CTC
+            #loss_length=torch.tensor(0.0), # Length prediction loss is not used for CTC
+            loss_length=loss_sim,
             loss_kl=loss_kl,
-            logits=decoder_outputs.logits,
+            #logits=decoder_outputs.logits,
+            logits=logits,
             past_key_values=decoder_outputs.past_key_values,
             decoder_hidden_states=decoder_outputs.hidden_states,
             decoder_attentions=decoder_outputs.attentions,
