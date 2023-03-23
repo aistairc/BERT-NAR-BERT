@@ -10,7 +10,6 @@ from nar_transformers import BertTokenizerFast
 from nar_transformers import BertConfig
 from nar_transformers import EncoderDecoderConfig, EncoderDecoderModel
 from nar_transformers import Seq2SeqTrainingArguments, Seq2SeqTrainer
-from nar_transformers import DataCollatorForPermutationLanguageModeling
 
 import wandb
 os.environ["WANDB_PROJECT"] = "pre-training"
