@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #$ -l rt_AF=2
-#$ -l h_rt=30:00:00
+#$ -l h_rt=10:00:00
 #$ -j y
 #$ -cwd
 

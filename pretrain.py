@@ -1,7 +1,8 @@
 import os
 import datasets
+from datasets import load_from_disk
 import transformers
-from transformers import DataCollatorForLanguageModeling, DataCollatorForPermutationLanguageModeling
+from transformers import DataCollatorForLanguageModeling
 import numpy as np
 import evaluate
 
@@ -9,15 +10,23 @@ from nar_transformers import BertTokenizerFast
 from nar_transformers import BertConfig
 from nar_transformers import EncoderDecoderConfig, EncoderDecoderModel
 from nar_transformers import Seq2SeqTrainingArguments, Seq2SeqTrainer
+from nar_transformers import DataCollatorForPermutationLanguageModeling
 
 import wandb
 os.environ["WANDB_PROJECT"] = "pre-training"
 
 
+cached_data_dir = "/scratch/aae15163zd/cache/wikipedia-20220301en-bert-base-cased-512/"
 model_name = "bert-base-cased"
-batch_size = 16  #
-max_length = 512 #
+
+if cached_data_dir is not None:
+    with open(os.path.join(cached_data_dir, "model_name.txt"), "r") as f:
+        assert model_name == f.read()
+
+batch_size = 20
+max_length = 512
 latent_size = 8
+pretraining_strategy = "mlm" # ae: AutoEncoding, mlm: Masked Language Modeling, plm: Permutation Language Modeling
 
 tokenizer = BertTokenizerFast.from_pretrained(model_name)
 
@@ -37,43 +46,75 @@ def process_wiki_to_model_inputs(batch):
 
     return batch
 
-train_data = datasets.load_dataset("wikipedia", "20220301.en", split="train[:99%]")
-val_data = datasets.load_dataset("wikipedia", "20220301.en", split="train[-1%:]")
+def process_permutation_language_model_inputs(batch):
+    plm_probability = 1/6
 
-train_data = train_data.map(
-    process_wiki_to_model_inputs,
-    batched=True,
-    batch_size=1024,
-    remove_columns=["text"],
-    num_proc=32, # set to the number of CPU cores in AF node
-)
-train_data = train_data.map(
-    process_wiki_to_model_inputs,
-    batched=True,
-    batch_size=1024,
-    remove_columns=["text"],
-    num_proc=32, # set to the number of CPU cores in AF node
-)
+    input_ids = batch["input_ids"]
+    attention_mask = batch["attention_mask"]
 
-val_data = all_data.select(range(1000))
+    bs = len(input_ids)
+    seq_length = attention_mask.sum(-1) - 2 # Excluding [CLS] and [SEP] tokens
+    num_permuted_tokens = (seq_length * plm_probability).int()
 
-train_data.set_format(
-    type="torch", columns=["input_ids", "attention_mask", "decoder_input_ids", "decoder_attention_mask", "labels"],
-)
-val_data.set_format(
-    type="torch", columns=["input_ids", "attention_mask", "decoder_input_ids", "decoder_attention_mask", "labels"],
-)
+    permuted_input_ids = input_ids.clone()
+    for i in range(bs):
+        target_indices = np.random.choice(np.arange(1, seq_length.numpy()[i] - 1), num_permuted_tokens.numpy()[i])
+        permuted_indices = np.random.permutation(target_indices)
+        permuted_input_ids[i, target_indices] = input_ids[i, permuted_indices]
+    batch["input_ids"] = permuted_input_ids
+
+    return batch
+
+if cached_data_dir is None:
+    train_data = datasets.load_dataset("wikipedia", "20220301.en", split="train[:99%]")
+    val_data = datasets.load_dataset("wikipedia", "20220301.en", split="train[-1%:]")
+
+    train_data = train_data.map(
+        process_wiki_to_model_inputs,
+        batched=True,
+        batch_size=1024,
+        remove_columns=["text"],
+        num_proc=32, # set to the number of CPU cores in AF node
+    )
+    val_data = val_data.map(
+        process_wiki_to_model_inputs,
+        batched=True,
+        batch_size=1024,
+        remove_columns=["text"],
+        num_proc=32, # set to the number of CPU cores in AF node
+    )
+    train_data.set_format(
+        type="torch", columns=["input_ids", "attention_mask", "decoder_input_ids", "decoder_attention_mask", "labels"],
+    )
+    val_data.set_format(
+        type="torch", columns=["input_ids", "attention_mask", "decoder_input_ids", "decoder_attention_mask", "labels"],
+    )
+else:
+    train_data = load_from_disk(os.path.join(cached_data_dir, "train"))
+    val_data = load_from_disk(os.path.join(cached_data_dir, "valid"))
+
+# Permutation lanaguage modeling
+if pretraining_strategy == "plm":
+    train_data = train_data.map(
+        process_permutation_language_model_inputs,
+        batched=True,
+        batch_size=1024,
+        num_proc=32, # set to the number of CPU cores in AF node
+    )
+    val_data = val_data.map(
+        process_permutation_language_model_inputs,
+        batched=True,
+        batch_size=1024,
+        num_proc=32, # set to the number of CPU cores in AF node
+    )
+
+val_data = val_data.select(range(1000))
 
 tokenizer.bos_token = tokenizer.cls_token
 tokenizer.eos_token = tokenizer.sep_token
 
-encoder_config = BertConfig.from_pretrained(model_name)
-decoder_config = BertConfig(**encoder_config.to_dict())
-encoder_config.latent_size, decoder_config.latent_size = latent_size, latent_size
-config = EncoderDecoderConfig.from_encoder_decoder_configs(encoder_config, decoder_config)
-
-model = EncoderDecoderModel(config=config)
-model.config.is_vae = True
+model = EncoderDecoderModel.from_encoder_decoder_pretrained(model_name, model_name, latent_size)
+model.config.is_vae = False
 
 # set special tokens
 model.config.decoder_start_token_id = tokenizer.bos_token_id
@@ -94,9 +135,9 @@ model.config.num_beam_groups = 0
 
 # set training arguments - these params are not really tuned, feel free to change
 training_args = Seq2SeqTrainingArguments(
-    output_dir="~/my_data/pretraining/wiki-en-MLM",
-    evaluation_strategy="no",
-    save_strategy="steps",
+    output_dir="~/my_data/pretraining/wikipedia-en-bert-base-cased-novae-mlm",
+    evaluation_strategy="steps",
+    save_strategy="epoch",
     per_device_train_batch_size=batch_size,
     per_device_eval_batch_size=batch_size,
     predict_with_generate=True,
@@ -105,27 +146,35 @@ training_args = Seq2SeqTrainingArguments(
     eval_steps=1_000,  # set to 8000 for full training
     warmup_steps=10_000,  # set to 2000 for full training
     learning_rate=1e-04,
-    #num_train_epochs=1.0, # seems like the default is only 3.0
-    max_steps=300_000,
+    weight_decay=0.01,
+    num_train_epochs=10.0, # seems like the default is only 3.0
+    #max_steps=300_000,
     overwrite_output_dir=True,
-    save_total_limit=1,
+    save_total_limit=None,
     fp16=True,
     report_to="wandb",
-    run_name="wiki-en-MLM",
+    run_name="wikipedia-en-bert-base-cased-novae-mlm",
 )
 
-mlm_data_collator = DataCollatorForLanguageModeling(
-    tokenizer=tokenizer, mlm=True, mlm_probability=0.15,
-)
+if pretraining_strategy == "mlm":
+    data_collator = DataCollatorForLanguageModeling(
+        tokenizer=tokenizer, mlm=True, mlm_probability=0.15,
+    )
+else:
+    data_collator = None
+
+def compute_metrics(pred):
+    return {"None": 0.0}
 
 # instantiate trainer
 trainer = Seq2SeqTrainer(
     model=model,
     tokenizer=tokenizer,
     args=training_args,
+    compute_metrics=compute_metrics,
     train_dataset=train_data,
     eval_dataset=val_data,
-    data_collator=mlm_data_collator,
+    data_collator=data_collator,
 )
 
 trainer.train()
