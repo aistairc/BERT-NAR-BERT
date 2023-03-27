@@ -15,7 +15,7 @@ os.environ["WANDB_PROJECT"] = "translation"
 src_model_name = "bert-base-cased"
 tgt_model_name = "bert-base-german-cased"
 
-batch_size = 64  # change to 16 for full training
+batch_size = 128  # change to 16 for full training
 max_length = 128 # 128 actually works better for MT
 latent_size = 8
 
@@ -73,20 +73,16 @@ train_data.set_format(
 val_data.set_format(
     type="torch", columns=["input_ids", "attention_mask", "decoder_input_ids", "decoder_attention_mask", "labels"],
 )
-
+distilled_train_data = datasets.load_from_disk("/scratch/aae15163zd/cache/huggingface/datasets/wmt14-en-de-bert-base-cased-128/distilled_train")
 
 src_tokenizer.bos_token = src_tokenizer.cls_token
 src_tokenizer.eos_token = src_tokenizer.sep_token
 tgt_tokenizer.bos_token = tgt_tokenizer.cls_token
 tgt_tokenizer.eos_token = tgt_tokenizer.sep_token
 
-encoder_config = BertConfig.from_pretrained(src_model_name)
-decoder_config = BertConfig.from_pretrained(tgt_model_name)
-encoder_config.latent_size, decoder_config.latent_size = latent_size, latent_size
-config = EncoderDecoderConfig.from_encoder_decoder_configs(encoder_config, decoder_config)
+model = EncoderDecoderModel.from_encoder_decoder_pretrained(src_model_name, tgt_model_name, latent_size)
 
-model = EncoderDecoderModel(config=config)
-model.config.is_vae = True
+model.config.is_vae = False
 
 # set special tokens
 model.config.decoder_start_token_id = tgt_tokenizer.bos_token_id
@@ -150,8 +146,9 @@ training_args = Seq2SeqTrainingArguments(
     eval_steps=500,  # set to 8000 for full training
     warmup_steps=10_000,  # set to 2000 for full training
     learning_rate=1e-04,
+    weight_decay=0.01,
     #num_train_epochs=10.0, # seems like the default is only 3.0
-    max_steps=200_000,
+    max_steps=100_000,
     overwrite_output_dir=True,
     save_total_limit=1,
     fp16=True,
@@ -164,7 +161,8 @@ trainer = Seq2SeqTrainer(
     model=model,
     args=training_args,
     compute_metrics=compute_metrics,
-    train_dataset=train_data,
+    #train_dataset=train_data,
+    train_dataset=distilled_train_data,
     eval_dataset=val_data,
 )
 

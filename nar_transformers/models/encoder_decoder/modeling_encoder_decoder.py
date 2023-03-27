@@ -216,9 +216,6 @@ class EncoderDecoderModel(PreTrainedModel):
         self.encoder = encoder
         self.decoder = decoder
 
-        #self.tau = nn.Parameter(torch.tensor(1.0))
-        self.tau = nn.Parameter(torch.tensor(0.5))
-
         if self.encoder.config.to_dict() != self.config.encoder.to_dict():
             logger.warning(
                 f"Config of the encoder: {self.encoder.__class__} is overwritten by shared encoder config:"
@@ -385,6 +382,7 @@ class EncoderDecoderModel(PreTrainedModel):
         cls,
         encoder_pretrained_model_name_or_path: str = None,
         decoder_pretrained_model_name_or_path: str = None,
+        latent_size: int = None,
         *model_args,
         **kwargs
     ) -> PreTrainedModel:
@@ -478,6 +476,7 @@ class EncoderDecoderModel(PreTrainedModel):
                 encoder_config, kwargs_encoder = AutoConfig.from_pretrained(
                     encoder_pretrained_model_name_or_path, **kwargs_encoder, return_unused_kwargs=True
                 )
+                encoder_config.latent_size = latent_size
 
                 if encoder_config.is_decoder is True or encoder_config.add_cross_attention is True:
                     logger.info(
@@ -505,6 +504,7 @@ class EncoderDecoderModel(PreTrainedModel):
                 decoder_config, kwargs_decoder = AutoConfig.from_pretrained(
                     decoder_pretrained_model_name_or_path, **kwargs_decoder, return_unused_kwargs=True
                 )
+                decoder_config.latent_size = latent_size
 
                 if decoder_config.is_decoder is False or decoder_config.add_cross_attention is False:
                     logger.info(
@@ -613,6 +613,10 @@ class EncoderDecoderModel(PreTrainedModel):
             # Connect hidden feature to the latent space
             mu, logvar = encoder_outputs.latent.chunk(2, -1)
             loss_kl = 0.5 * (mu.pow(2) + logvar.exp() - logvar - 1)
+            # KL thresholding
+            th = torch.tensor(0.5).cuda().float()
+            loss_kl = torch.where(loss_kl > th, loss_kl, th)
+
             loss_kl = ((loss_kl.sum(-1) * x_mask).sum(1) / x_mask.sum(1)).mean()
             if self.training:
                 std = (0.5 * logvar).exp()
@@ -660,10 +664,16 @@ class EncoderDecoderModel(PreTrainedModel):
             #loss_fct = CrossEntropyLoss()
             #loss = loss_fct(logits.reshape(-1, self.decoder.config.vocab_size), labels.view(-1))
 
-            input_log_probs = logits.log_softmax(-1).transpose(0, 1)
-            input_lengths = (attention_mask * 0 + 1).sum(1).int() # all input lengths are set to max_seq_len
-            targets = decoder_input_ids.int()
-            target_lengths = decoder_attention_mask.sum(1).int()
+            #input_log_probs = logits.double().log_softmax(-1).transpose(0, 1)
+            #input_log_probs = logits.log_softmax(-1).transpose(0, 1)
+            #input_log_probs = logits.float().log_softmax(-1).transpose(0, 1).detach().requires_grad_()
+            input_log_probs = logits.float().log_softmax(-1).transpose(0, 1)
+            input_lengths = (attention_mask * 0 + 1).sum(1).long() # all input lengths are set to max_seq_len
+            targets = decoder_input_ids.long()
+            target_lengths = decoder_attention_mask.sum(1).long()
+            #input_lengths = (attention_mask * 0 + 1).sum(1).int() # all input lengths are set to max_seq_len
+            #targets = decoder_input_ids.int()
+            #target_lengths = decoder_attention_mask.sum(1).int()
 
             loss_ctc_fct = nn.CTCLoss(zero_infinity=True)
             with torch.backends.cudnn.flags(enabled=False):

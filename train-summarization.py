@@ -13,7 +13,7 @@ os.environ["WANDB_PROJECT"] = "summarization"
 
 
 model_name = "bert-base-cased"
-batch_size = 16  # change to 16 for full training
+batch_size = 20  # change to 16 for full training
 max_length = 512 # 128 actually works better for MT
 latent_size = 8
 
@@ -64,17 +64,12 @@ val_data.set_format(
 tokenizer.bos_token = tokenizer.cls_token
 tokenizer.eos_token = tokenizer.sep_token
 
-encoder_config = BertConfig.from_pretrained(model_name)
-decoder_config = BertConfig(**encoder_config.to_dict())
-encoder_config.latent_size, decoder_config.latent_size = latent_size, latent_size
-config = EncoderDecoderConfig.from_encoder_decoder_configs(encoder_config, decoder_config)
+model = EncoderDecoderModel.from_encoder_decoder_pretrained(model_name, model_name, latent_size)
 
-model = EncoderDecoderModel(config=config)
 #model = EncoderDecoderModel.from_pretrained(
-#    "/groups/gac50543/migrated_from_SFA_GPFS/asada/pretraining/ctc-wiki-en-maskedLM/checkpoint-25000",
-#    config=config,
+#    "/groups/gac50543/migrated_from_SFA_GPFS/asada/pretraining/wikipedia-en-bert-base-cased-noval-mlm-fp32ctc/checkpoint-59946/",
 #)
-model.config.is_vae = True
+model.config.is_vae = False
 
 # set special tokens
 model.config.decoder_start_token_id = tokenizer.bos_token_id
@@ -132,19 +127,19 @@ training_args = Seq2SeqTrainingArguments(
     per_device_train_batch_size=batch_size,
     per_device_eval_batch_size=batch_size,
     predict_with_generate=True,
-    logging_steps=1_000,  # set to 1000 for full training
+    logging_steps=500,  # set to 1000 for full training
     save_steps=5_000,  # set to 500 for full training
-    eval_steps=1_000,  # set to 8000 for full training
-    #warmup_steps=10000,  # set to 2000 for full training
-    warmup_ratio=0.10,
+    eval_steps=500,  # set to 8000 for full training
+    warmup_steps=10_000,  # set to 2000 for full training
     learning_rate=1e-04,
-    #num_train_epochs=10.0, # seems like the default is only 3.0
     max_steps=100_000,
     overwrite_output_dir=True,
     save_total_limit=1,
     fp16=True,
+    weight_decay=0.01,
     report_to="wandb",
     run_name="xsum",
+    gradient_accumulation_steps=1,
 )
 
 # instantiate trainer
