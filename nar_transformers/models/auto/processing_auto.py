@@ -41,28 +41,39 @@ logger = logging.get_logger(__name__)
 
 PROCESSOR_MAPPING_NAMES = OrderedDict(
     [
+        ("align", "AlignProcessor"),
+        ("altclip", "AltCLIPProcessor"),
+        ("blip", "BlipProcessor"),
+        ("blip-2", "Blip2Processor"),
+        ("bridgetower", "BridgeTowerProcessor"),
         ("chinese_clip", "ChineseCLIPProcessor"),
+        ("clap", "ClapProcessor"),
         ("clip", "CLIPProcessor"),
         ("clipseg", "CLIPSegProcessor"),
         ("flava", "FlavaProcessor"),
+        ("git", "GitProcessor"),
         ("groupvit", "CLIPProcessor"),
+        ("hubert", "Wav2Vec2Processor"),
         ("layoutlmv2", "LayoutLMv2Processor"),
         ("layoutlmv3", "LayoutLMv3Processor"),
-        ("layoutxlm", "LayoutXLMProcessor"),
         ("markuplm", "MarkupLMProcessor"),
+        ("mgp-str", "MgpstrProcessor"),
+        ("oneformer", "OneFormerProcessor"),
         ("owlvit", "OwlViTProcessor"),
+        ("pix2struct", "Pix2StructProcessor"),
         ("sew", "Wav2Vec2Processor"),
         ("sew-d", "Wav2Vec2Processor"),
         ("speech_to_text", "Speech2TextProcessor"),
         ("speech_to_text_2", "Speech2Text2Processor"),
+        ("speecht5", "SpeechT5Processor"),
         ("trocr", "TrOCRProcessor"),
+        ("tvlt", "TvltProcessor"),
         ("unispeech", "Wav2Vec2Processor"),
         ("unispeech-sat", "Wav2Vec2Processor"),
         ("vilt", "ViltProcessor"),
         ("vision-text-dual-encoder", "VisionTextDualEncoderProcessor"),
         ("wav2vec2", "Wav2Vec2Processor"),
         ("wav2vec2-conformer", "Wav2Vec2Processor"),
-        ("wav2vec2_with_lm", "Wav2Vec2ProcessorWithLM"),
         ("wavlm", "Wav2Vec2Processor"),
         ("whisper", "WhisperProcessor"),
         ("xclip", "XCLIPProcessor"),
@@ -178,7 +189,7 @@ class AutoProcessor:
         >>> processor = AutoProcessor.from_pretrained("facebook/wav2vec2-base-960h")
 
         >>> # If processor files are in a directory (e.g. processor was saved using *save_pretrained('./test/saved_model/')*)
-        >>> processor = AutoProcessor.from_pretrained("./test/saved_model/")
+        >>> # processor = AutoProcessor.from_pretrained("./test/saved_model/")
         ```"""
         config = kwargs.pop("config", None)
         trust_remote_code = kwargs.pop("trust_remote_code", False)
@@ -253,6 +264,7 @@ class AutoProcessor:
                 processor_class = get_class_from_dynamic_module(
                     pretrained_model_name_or_path, module_file + ".py", class_name, **kwargs
                 )
+                processor_class.register_for_auto_class()
             else:
                 processor_class = processor_class_from_name(processor_class)
 
@@ -287,8 +299,8 @@ class AutoProcessor:
 
         raise ValueError(
             f"Unrecognized processing class in {pretrained_model_name_or_path}. Can't instantiate a processor, a "
-            "tokenizer or a feature extractor for this model. Make sure the repository contains the files of at least "
-            "one of those processing classes."
+            "tokenizer, an image processor or a feature extractor for this model. Make sure the repository contains"
+            "the files of at least one of those processing classes."
         )
 
     @staticmethod

@@ -21,19 +21,21 @@ import tempfile
 import warnings
 from typing import Optional, Tuple, Union
 
+import math
 import torch
 from torch import nn
 from torch.nn import CrossEntropyLoss
 
-#from ...configuration_utils import PretrainedConfig
-from transformers import PretrainedConfig
-from ...modeling_outputs import BaseModelOutput, Seq2SeqLMOutput
+from ...configuration_utils import PretrainedConfig
+from ...modeling_outputs import BaseModelOutput, Seq2SeqLMOutput, CausalLMOutput
 from ...modeling_utils import PreTrainedModel
 from ...utils import add_start_docstrings, add_start_docstrings_to_model_forward, logging, replace_return_docstrings
 from ..auto.configuration_auto import AutoConfig
 from ..auto.modeling_auto import AutoModel, AutoModelForCausalLM
 from .configuration_encoder_decoder import EncoderDecoderConfig
 
+from ..bert.configuration_bert import BertConfig
+from ..bert.modeling_bert import BertModel, BertLMHeadModel
 
 logger = logging.get_logger(__name__)
 
@@ -147,7 +149,6 @@ ENCODER_DECODER_INPUTS_DOCSTRING = r"""
             - With a *decoder_* prefix which will be input as `**decoder_kwargs` for the decoder forward function.
 """
 
-
 def shift_tokens_right(input_ids: torch.Tensor, pad_token_id: int, decoder_start_token_id: int):
     """
     Shift input ids one token to the right.
@@ -206,11 +207,15 @@ class EncoderDecoderModel(PreTrainedModel):
         super().__init__(config)
 
         if encoder is None:
-            from ..bert.modeling_bert import BertModel
+            #from ..auto.modeling_auto import AutoModel
+
+            #encoder = AutoModel.from_config(config.encoder)
             encoder = BertModel(config.encoder)
 
         if decoder is None:
-            from ..bert.modeling_bert import BertLMHeadModel
+            #from ..auto.modeling_auto import AutoModelForCausalLM
+
+            #decoder = AutoModelForCausalLM.from_config(config.decoder)
             decoder = BertLMHeadModel(config.decoder)
 
         self.encoder = encoder
@@ -384,7 +389,7 @@ class EncoderDecoderModel(PreTrainedModel):
         decoder_pretrained_model_name_or_path: str = None,
         latent_size: int = None,
         *model_args,
-        **kwargs
+        **kwargs,
     ) -> PreTrainedModel:
         r"""
         Instantiate an encoder and a decoder from one or two base classes of the library from pretrained model
@@ -473,10 +478,13 @@ class EncoderDecoderModel(PreTrainedModel):
                 )
 
             if "config" not in kwargs_encoder:
-                encoder_config, kwargs_encoder = AutoConfig.from_pretrained(
+                encoder_config, kwargs_encoder = BertConfig.from_pretrained(
                     encoder_pretrained_model_name_or_path, **kwargs_encoder, return_unused_kwargs=True
                 )
                 encoder_config.latent_size = latent_size
+                # Dropout setting
+                #encoder_config.hidden_dropout_prob = 0.5
+                #encoder_config.attention_probs_dropout_prob = 0.5
 
                 if encoder_config.is_decoder is True or encoder_config.add_cross_attention is True:
                     logger.info(
@@ -488,8 +496,6 @@ class EncoderDecoderModel(PreTrainedModel):
 
                 kwargs_encoder["config"] = encoder_config
 
-            #encoder = AutoModel.from_pretrained(encoder_pretrained_model_name_or_path, *model_args, **kwargs_encoder)
-            from ..bert.modeling_bert import BertModel
             encoder = BertModel.from_pretrained(encoder_pretrained_model_name_or_path, *model_args, **kwargs_encoder)
 
         decoder = kwargs_decoder.pop("model", None)
@@ -501,10 +507,13 @@ class EncoderDecoderModel(PreTrainedModel):
                 )
 
             if "config" not in kwargs_decoder:
-                decoder_config, kwargs_decoder = AutoConfig.from_pretrained(
+                decoder_config, kwargs_decoder = BertConfig.from_pretrained(
                     decoder_pretrained_model_name_or_path, **kwargs_decoder, return_unused_kwargs=True
                 )
                 decoder_config.latent_size = latent_size
+                # Dropout setting
+                #decoder_config.hidden_dropout_prob = 0.5
+                #decoder_config.attention_probs_dropout_prob = 0.5
 
                 if decoder_config.is_decoder is False or decoder_config.add_cross_attention is False:
                     logger.info(
@@ -526,8 +535,6 @@ class EncoderDecoderModel(PreTrainedModel):
                     "`decoder_config` to `.from_encoder_decoder_pretrained(...)`"
                 )
 
-            #decoder = AutoModelForCausalLM.from_pretrained(decoder_pretrained_model_name_or_path, **kwargs_decoder)
-            from ..bert.modeling_bert import BertLMHeadModel
             decoder = BertLMHeadModel.from_pretrained(decoder_pretrained_model_name_or_path, **kwargs_decoder)
 
         # instantiate config with corresponding kwargs
@@ -605,19 +612,13 @@ class EncoderDecoderModel(PreTrainedModel):
         elif isinstance(encoder_outputs, tuple):
             encoder_outputs = BaseModelOutput(*encoder_outputs)
 
-        bs, max_seq_len = input_ids.size()
-
+        bs, max_seq_len = attention_mask.size()
         encoder_hidden_states = encoder_outputs[0]
-        x_mask = attention_mask
+
         if self.config.is_vae:
-            # Connect hidden feature to the latent space
             mu, logvar = encoder_outputs.latent.chunk(2, -1)
             loss_kl = 0.5 * (mu.pow(2) + logvar.exp() - logvar - 1)
-            # KL thresholding
-            th = torch.tensor(0.5).cuda().float()
-            loss_kl = torch.where(loss_kl > th, loss_kl, th)
-
-            loss_kl = ((loss_kl.sum(-1) * x_mask).sum(1) / x_mask.sum(1)).mean()
+            loss_kl = ((loss_kl.sum(-1) * attention_mask).sum(1) / attention_mask.sum(1)).mean()
             if self.training:
                 std = (0.5 * logvar).exp()
                 eps = torch.randn_like(std)
@@ -625,8 +626,9 @@ class EncoderDecoderModel(PreTrainedModel):
             else:
                 z = mu
         else:
-            z, _ = encoder_outputs.latent.chunk(2, -1)
             loss_kl = torch.tensor(0.0)
+            z, _ = encoder_outputs.latent.chunk(2, -1)
+
 
         # optionally project encoder_hidden_states
         if (
@@ -640,11 +642,17 @@ class EncoderDecoderModel(PreTrainedModel):
                 labels, self.config.pad_token_id, self.config.decoder_start_token_id
             )
 
+        # Dropout
+        z = nn.functional.dropout(z, p=self.config.dropout_prob, training=self.training)
+        cross_attentions = nn.functional.dropout(encoder_hidden_states, p=self.config.dropout_prob, training=self.training)
+
         # Decode
         decoder_outputs = self.decoder(
-            input_ids=decoder_input_ids, # In fact, decoder_input_ids are not used
+            input_ids=decoder_input_ids, # dummy
             attention_mask=attention_mask,
-            encoder_hidden_states=encoder_hidden_states,
+            #attention_mask=(attention_mask * 0 + 1),
+            #encoder_hidden_states=encoder_hidden_states,
+            encoder_hidden_states=cross_attentions,
             encoder_attention_mask=attention_mask,
             inputs_embeds=decoder_inputs_embeds,
             output_attentions=output_attentions,
@@ -659,25 +667,15 @@ class EncoderDecoderModel(PreTrainedModel):
         # Compute loss independent from decoder (as some shift the logits inside them)
         loss = None
         if labels is not None:
-            warnings.warn(DEPRECATION_WARNING, FutureWarning)
+            #warnings.warn(DEPRECATION_WARNING, FutureWarning)
             logits = decoder_outputs.logits if return_dict else decoder_outputs[0]
-            #loss_fct = CrossEntropyLoss()
-            #loss = loss_fct(logits.reshape(-1, self.decoder.config.vocab_size), labels.view(-1))
-
-            #input_log_probs = logits.double().log_softmax(-1).transpose(0, 1)
-            #input_log_probs = logits.log_softmax(-1).transpose(0, 1)
-            #input_log_probs = logits.float().log_softmax(-1).transpose(0, 1).detach().requires_grad_()
-            input_log_probs = logits.float().log_softmax(-1).transpose(0, 1)
-            input_lengths = (attention_mask * 0 + 1).sum(1).long() # all input lengths are set to max_seq_len
-            targets = decoder_input_ids.long()
-            target_lengths = decoder_attention_mask.sum(1).long()
-            #input_lengths = (attention_mask * 0 + 1).sum(1).int() # all input lengths are set to max_seq_len
-            #targets = decoder_input_ids.int()
-            #target_lengths = decoder_attention_mask.sum(1).int()
-
+            log_probs = logits.log_softmax(-1)
+            #input_lengths = attention_mask.sum(1)
+            input_lengths = (attention_mask * 0 + 1).sum(1)
+            targets = decoder_input_ids
+            target_lengths = decoder_attention_mask.sum(1)
             loss_ctc_fct = nn.CTCLoss(zero_infinity=True)
-            with torch.backends.cudnn.flags(enabled=False):
-                loss = loss_ctc_fct(input_log_probs, targets, input_lengths, target_lengths)
+            loss = loss_ctc_fct(log_probs.transpose(0, 1), targets, input_lengths, target_lengths)
 
         if not return_dict:
             if loss is not None:
@@ -685,28 +683,20 @@ class EncoderDecoderModel(PreTrainedModel):
             else:
                 return decoder_outputs + encoder_outputs
 
-        return Seq2SeqLMOutput(
+        return CausalLMOutput(
             loss=loss,
-            loss_length=torch.tensor(0.0), # Length prediction loss is not used for CTC
             loss_kl=loss_kl,
             logits=decoder_outputs.logits,
-            past_key_values=decoder_outputs.past_key_values,
-            decoder_hidden_states=decoder_outputs.hidden_states,
-            decoder_attentions=decoder_outputs.attentions,
-            cross_attentions=decoder_outputs.cross_attentions,
-            encoder_last_hidden_state=encoder_outputs.last_hidden_state,
-            encoder_hidden_states=encoder_outputs.hidden_states,
-            encoder_attentions=encoder_outputs.attentions,
-            decoder_attention_mask=decoder_attention_mask,
+            attention_mask=attention_mask,
         )
 
     def prepare_decoder_input_ids_from_labels(self, labels: torch.Tensor):
         return shift_tokens_right(labels, self.config.pad_token_id, self.config.decoder_start_token_id)
 
     def prepare_inputs_for_generation(
-        self, input_ids, past=None, attention_mask=None, use_cache=None, encoder_outputs=None, **kwargs
+        self, input_ids, past_key_values=None, attention_mask=None, use_cache=None, encoder_outputs=None, **kwargs
     ):
-        decoder_inputs = self.decoder.prepare_inputs_for_generation(input_ids, past=past)
+        decoder_inputs = self.decoder.prepare_inputs_for_generation(input_ids, past_key_values=past_key_values)
         decoder_attention_mask = decoder_inputs["attention_mask"] if "attention_mask" in decoder_inputs else None
         input_dict = {
             "attention_mask": attention_mask,
@@ -725,6 +715,6 @@ class EncoderDecoderModel(PreTrainedModel):
             " model.decoder.resize_token_embeddings(...))"
         )
 
-    def _reorder_cache(self, past, beam_idx):
+    def _reorder_cache(self, past_key_values, beam_idx):
         # apply decoder cache reordering here
-        return self.decoder._reorder_cache(past, beam_idx)
+        return self.decoder._reorder_cache(past_key_values, beam_idx)
