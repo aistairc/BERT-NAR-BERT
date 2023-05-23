@@ -19,27 +19,27 @@ os.environ["WANDB_PROJECT"] = "pre-training"
 random.seed(42)
 
 model_name = "bert-base-cased"
-cached_data_dir = "/scratch/aae15163zd/cache/wikipedia-20220301en-bert-base-cased-512-clm-tgt10-20-clssep/"
+cached_data_dir = "/scratch/aae15163zd/cache/wikipedia-20220301en-bert-base-cased-512-clm-tgt0.2-0.3-clssep/"
 #cached_data_dir = "/scratch/aae15163zd/cache/wikipedia-20220301en-bert-base-cased-512-plm0.5/"
 #cached_data_dir = "/scratch/aae15163zd/cache/wikipedia-20220301en-bert-base-cased-512/"
 
-batch_size = 25
+batch_size = 20
 max_length = 512
 latent_size = 8
 pretraining_strategy = "clm" # ae: AutoEncoding, mlm: Masked Language Modeling, plm: Permutation Language Modeling
 
 tokenizer = BertTokenizerFast.from_pretrained(model_name)
 
-train_data = load_from_disk(os.path.join(cached_data_dir, "train"))
-val_data = load_from_disk(os.path.join(cached_data_dir, "valid"))
+all_data = load_from_disk(cached_data_dir)
+# only 5000 samples are used for validation
+train_data = all_data.select(range(len(all_data) - 5000))
+val_data = all_data.select(range(len(all_data) - 5000, len(all_data)))
 train_data.set_format(
     type="torch", columns=["input_ids", "attention_mask", "decoder_input_ids", "decoder_attention_mask", "labels"],
 )
 val_data.set_format(
     type="torch", columns=["input_ids", "attention_mask", "decoder_input_ids", "decoder_attention_mask", "labels"],
 )
-
-val_data = val_data.select(range(5000))
 
 tokenizer.bos_token = tokenizer.cls_token
 tokenizer.eos_token = tokenizer.sep_token
@@ -54,7 +54,7 @@ model.config.eos_token_id = tokenizer.eos_token_id
 model.config.pad_token_id = tokenizer.pad_token_id
 
 
-run_name = "wikipedia-en-bert-base-cased-clm-lr1e-4-bs3.2K-ep10"
+run_name = "wikipedia-en-bert-base-cased-clm-lr1e-4-bs1280-ep10"
 # set training arguments - these params are not really tuned, feel free to change
 training_args = TrainingArguments(
     output_dir=os.path.join("~/my_data/pretraining", run_name),
@@ -62,10 +62,10 @@ training_args = TrainingArguments(
     evaluation_strategy="steps",
     save_strategy="epoch",
     logging_steps=1000,
-    evaluation_steps=1000,
+    eval_steps=1000,
     per_device_train_batch_size=batch_size,
     per_device_eval_batch_size=batch_size,
-    gradient_accumulation_steps=8,
+    gradient_accumulation_steps=4,
     warmup_ratio=0.05,
     learning_rate=1e-04,
     weight_decay=0.01,
