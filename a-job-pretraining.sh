@@ -6,12 +6,11 @@
 #$ -cwd
 
 source /etc/profile.d/modules.sh
-source ~/venv/af_pytorch/bin/activate
-module load gcc/11.2.0
-module load python/3.10/3.10.4
-module load cuda/11.5/11.5.2
-module load cudnn/8.3/8.3.3
-module load nccl/2.11/2.11.4-1
+source ~/venv/pytorch2/bin/activate
+module load gcc/8.3.1
+module load python/3.10
+module load cuda/11.7
+module load cudnn/8.4
 
 export OMP_NUM_THREADS=1
 export NUM_GPUS_PER_NODE=$(nvidia-smi --query-gpu=name --format=csv,noheader | wc -l)
