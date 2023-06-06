@@ -7,13 +7,16 @@ from nar_transformers import BertTokenizerFast
 from nar_transformers import BertConfig
 from nar_transformers import EncoderDecoderConfig, EncoderDecoderModel
 from nar_transformers import Seq2SeqTrainingArguments, Seq2SeqTrainer
+from eval import Evaluate
 
 import wandb
 os.environ["WANDB_PROJECT"] = "summarization"
+#os.environ["WANDB_DISABLED"] = "true"
+#os.environ["WANDB_SILENT"] = "true"
 
 
 model_name = "bert-base-cased"
-batch_size = 20  # change to 16 for full training
+batch_size = 16  # change to 16 for full training
 max_length = 512 # 128 actually works better for MT
 latent_size = 8
 
@@ -39,6 +42,9 @@ def process_data_to_model_inputs(batch):
 
 train_data = datasets.load_dataset("xsum", split="train")
 val_data = datasets.load_dataset("xsum", split="validation")
+
+train_data = train_data.select(range(1))
+val_data = val_data.select(range(1))
 
 train_data = train_data.map(
     process_data_to_model_inputs,
@@ -85,10 +91,11 @@ model.config.early_stopping = True
 model.config.length_penalty = 1.0
 model.config.num_beams = 1
 model.config.num_beam_groups = 0
-
+model.config.batch_size = batch_size
 
 # load bleu for validation
 rouge = evaluate.load("rouge")
+calculator = Evaluate()
 
 def compute_metrics(pred):
     labels_ids = pred.label_ids
@@ -111,8 +118,15 @@ def compute_metrics(pred):
     label_str = tokenizer.batch_decode(labels_ids, skip_special_tokens=True)
     #rouge_output = rouge.compute(predictions=pred_str, references=label_str)
     rouge_output = rouge.compute(predictions=no_rep_pred_str, references=label_str)
+    metric_dict = calculator.evaluate(no_rep_pred_str, label_str)
 
     return {
+        "Bleu_1": round(np.mean(metric_dict["Bleu_1"]), 4),
+        "Bleu_2": round(np.mean(metric_dict["Bleu_2"]), 4),
+        "Bleu_3": round(np.mean(metric_dict["Bleu_3"]), 4),
+        "Bleu_4": round(np.mean(metric_dict["Bleu_4"]), 4),
+        "ROUGE_L": round(np.mean(metric_dict["ROUGE_L"]), 4),
+        "METEOR": round(np.mean(metric_dict["METEOR"]), 4),
         "rouge1": round(np.mean(rouge_output["rouge1"]), 4),
         "rouge2": round(np.mean(rouge_output["rouge2"]), 4),
         "rougeL": round(np.mean(rouge_output["rougeL"]), 4),
@@ -135,7 +149,7 @@ training_args = Seq2SeqTrainingArguments(
     max_steps=100_000,
     overwrite_output_dir=True,
     save_total_limit=1,
-    fp16=True,
+    fp16=False,
     weight_decay=0.01,
     report_to="wandb",
     run_name="xsum",

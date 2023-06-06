@@ -201,10 +201,20 @@ class EncoderDecoderModel(PreTrainedModel):
                     f" `config.decoder.cross_attention_hidden_size` and {config.encoder.hidden_size} for"
                     " `config.encoder.hidden_size`."
                 )
-
         # initialize with config
         super().__init__(config)
-
+        #padding_idx, vocab_size = config.pad_token_id, config.decoder.vocab_size
+        #self.config.shared = nn.Embedding(vocab_size, config.decoder.hidden_size, padding_idx)
+        #self.shared = nn.Embedding(vocab_size, config.decoder.hidden_size, padding_idx)
+        #print(self.shared)
+        #print(config.decoder.hidden_size)
+        #self.config.lm_head = nn.Linear(config.decoder.hidden_size, self.shared.num_embeddings, bias=False)
+        #self.lm_head = nn.Linear(config.decoder.hidden_size, self.decoder.vocab_size, bias=False)
+        #print(self.lm_head)
+        #print("config.encoder", config.encoder)
+        #print("config.decoder", config.decoder)
+        #exit()
+        #print(config.decoder.max_position_embeddings)
         if encoder is None:
             from ..bert.modeling_bert import BertModel
             encoder = BertModel(config.encoder)
@@ -215,6 +225,10 @@ class EncoderDecoderModel(PreTrainedModel):
 
         self.encoder = encoder
         self.decoder = decoder
+
+        """ Off Ramps """
+        self.register_buffer("final_logits_bias", torch.zeros((1, config.decoder.vocab_size)))
+        self.lm_head = nn.Linear(config.decoder.hidden_size, config.decoder.vocab_size, bias=False)
 
         if self.encoder.config.to_dict() != self.config.encoder.to_dict():
             logger.warning(
@@ -542,10 +556,12 @@ class EncoderDecoderModel(PreTrainedModel):
         attention_mask: Optional[torch.FloatTensor] = None,
         decoder_input_ids: Optional[torch.LongTensor] = None,
         decoder_attention_mask: Optional[torch.BoolTensor] = None,
+        cross_attn_head_mask: Optional[torch.BoolTensor] = None,
         encoder_outputs: Optional[Tuple[torch.FloatTensor]] = None,
         past_key_values: Tuple[Tuple[torch.FloatTensor]] = None,
         inputs_embeds: Optional[torch.FloatTensor] = None,
         decoder_inputs_embeds: Optional[torch.FloatTensor] = None,
+        exit_layers: Optional[torch.FloatTensor] = None,
         labels: Optional[torch.LongTensor] = None,
         use_cache: Optional[bool] = None,
         output_attentions: Optional[bool] = None,
@@ -641,12 +657,14 @@ class EncoderDecoderModel(PreTrainedModel):
             )
 
         # Decode
-        decoder_outputs = self.decoder(
+        decoder_outputs, exit_hidden_states = self.decoder(
             input_ids=decoder_input_ids, # In fact, decoder_input_ids are not used
             attention_mask=attention_mask,
             encoder_hidden_states=encoder_hidden_states,
             encoder_attention_mask=attention_mask,
             inputs_embeds=decoder_inputs_embeds,
+            #cross_attn_head_mask=cross_attn_head_mask,
+            #exit_layers=exit_layers,
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
             use_cache=use_cache,
@@ -660,7 +678,9 @@ class EncoderDecoderModel(PreTrainedModel):
         loss = None
         if labels is not None:
             warnings.warn(DEPRECATION_WARNING, FutureWarning)
-            logits = decoder_outputs.logits if return_dict else decoder_outputs[0]
+            #logits = exit_hidden_states[-1] + self.final_logits_bias
+            #logits = self.lm_head(exit_hidden_states[0]) + self.final_logits_bias
+            logits = decoder_outputs.logits + exit_hidden_states[-1] if return_dict else decoder_outputs[0] + exit_hidden_states[-1]
             #loss_fct = CrossEntropyLoss()
             #loss = loss_fct(logits.reshape(-1, self.decoder.config.vocab_size), labels.view(-1))
 

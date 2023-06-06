@@ -18,6 +18,7 @@
 
 import math
 import os
+import random
 import warnings
 from dataclasses import dataclass
 from typing import List, Optional, Tuple, Union
@@ -551,6 +552,7 @@ class BertLayer(nn.Module):
         head_mask: Optional[torch.FloatTensor] = None,
         encoder_hidden_states: Optional[torch.FloatTensor] = None,
         encoder_attention_mask: Optional[torch.FloatTensor] = None,
+
         past_key_value: Optional[Tuple[Tuple[torch.FloatTensor]]] = None,
         output_attentions: Optional[bool] = False,
     ) -> Tuple[torch.Tensor]:
@@ -619,14 +621,25 @@ class BertEncoder(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.config = config
+        self.layerdrop = 0.0
         self.layer = nn.ModuleList([BertLayer(config) for _ in range(config.num_hidden_layers)])
         self.gradient_checkpointing = False
+        self.lm_head = nn.Linear(self.config.hidden_size, self.config.vocab_size, bias=False)#28996, bias=False)
+        self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size)#, padding_idx=config.pad_token_id)
+        self.concat_head = nn.Linear(config.hidden_size * 2, config.hidden_size, bias=False)
 
     def forward(
         self,
         hidden_states: torch.Tensor,
         attention_mask: Optional[torch.FloatTensor] = None,
         head_mask: Optional[torch.FloatTensor] = None,
+        cross_attn_head_mask: Optional[torch.FloatTensor] = None,
+        #lm_head: Optional[torch.FloatTensor] = None,
+        #input_ids: Optional[torch.Tensor] = None,
+        #inputs_embeds: Optional[torch.Tensor] = None,
+        #concat_head: Optional[torch.FloatTensor] = None,
+        labels: Optional[torch.FloatTensor] = None,
+        exit_layers: Optional[torch.FloatTensor] = None,
         encoder_hidden_states: Optional[torch.FloatTensor] = None,
         encoder_attention_mask: Optional[torch.FloatTensor] = None,
         past_key_values: Optional[Tuple[Tuple[torch.FloatTensor]]] = None,
@@ -638,55 +651,165 @@ class BertEncoder(nn.Module):
         all_hidden_states = () if output_hidden_states else None
         all_self_attentions = () if output_attentions else None
         all_cross_attentions = () if output_attentions and self.config.add_cross_attention else None
-
+        all_intermediate_logits = ()
         next_decoder_cache = () if use_cache else None
+
+        """
+        if self.config.add_cross_attention:
+            if input_ids is not None and inputs_embeds is not None:
+                raise ValueError("You cannot specify both input_ids and inputs_embeds at the same time")
+            elif input_ids is not None:
+                self.config.input_shape = input_ids.size()
+            elif inputs_embeds is not None:
+                self.config.input_shape = inputs_embeds.size()[:-1]
+            else:
+                raise ValueError("You have to specify either input_ids or inputs_embeds")
+            #print("Input shape", input_ids.size())
+            #exit()
+        """
+        exit_hidden_states = torch.zeros(hidden_states.size()).to(hidden_states.device)
+        has_all_exited = torch.zeros([2, 512]).unsqueeze(-1).bool().to(hidden_states.device)
+        #has_all_exited = torch.zeros(self.config.input_shape).unsqueeze(-1).bool().to(hidden_states.device)
+
         for i, layer_module in enumerate(self.layer):
             if output_hidden_states:
                 all_hidden_states = all_hidden_states + (hidden_states,)
 
             layer_head_mask = head_mask[i] if head_mask is not None else None
             past_key_value = past_key_values[i] if past_key_values is not None else None
+            cross_attn_head_mask = cross_attn_head_mask[i] if cross_attn_head_mask is not None else None
+            # add LayerDrop (see https://arxiv.org/abs/1909.11556 for description)
+            dropout_probability = random.uniform(0, 1)
 
-            if self.gradient_checkpointing and self.training:
+            if self.config.add_cross_attention:
+                """ Early Exit (Off Ramps) Approach For BERT Decoder Layers"""
+                if self.training and (dropout_probability < self.layerdrop):  # skip the layer
+                    continue
+
+                if i > 0:
+                    intermediate_logits = self.lm_head(hidden_states)  # using h_n to predict p_n
+                    all_intermediate_logits += (intermediate_logits,)
+                    if self.training:
+                        predicted_samples = intermediate_logits.argmax(dim=-1)
+                        #predicted_embeds = self.word_embeddings(predicted_samples)
+                        predicted_embeds = self.embed_tokens(predicted_samples)
+
+                    if labels is not None:
+                        label_embeds = self.embed_tokens(labels)
+                        probability = torch.ones(labels.size()) * 0.3
+                        control = torch.bernoulli(probability).unsqueeze(-1).to(labels.device)
+                        predicted_embeds = control * label_embeds + (1 - control) * predicted_embeds
+                    else:
+                        predicted_samples = intermediate_logits.argmax(dim=-1)
+                        predicted_embeds = self.embed_tokens(predicted_samples)
+                    hidden_states = self.concat_head(torch.cat([hidden_states, predicted_embeds], dim=-1))
+
+                if self.gradient_checkpointing and self.training:
+                    if use_cache:
+                        logger.warning(
+                            "`use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`..."
+                        )
+                        use_cache = False
+
+                    def create_custom_forward(module):
+                        def custom_forward(*inputs):
+                            return module(*inputs, past_key_value, output_attentions)
+
+                        return custom_forward
+
+                    layer_outputs = torch.utils.checkpoint.checkpoint(
+                        create_custom_forward(layer_module),
+                        hidden_states,
+                        attention_mask,
+                        layer_head_mask,#(head_mask[i] if head_mask is not None else None),
+                        encoder_hidden_states,
+                        encoder_attention_mask,
+                        #cross_attn_head_mask,
+                    )
+                else:
+                    layer_outputs = layer_module(
+                        hidden_states,
+                        attention_mask,
+                        layer_head_mask,#=(head_mask[i] if head_mask is not None else None),
+                        encoder_hidden_states,
+                        encoder_attention_mask,
+                        #cross_attn_head_mask,
+                        past_key_value,
+                        output_attentions,
+                    )
+
+                hidden_states = layer_outputs[0]
+                #print("layer_outputs", layer_outputs)
 
                 if use_cache:
-                    logger.warning(
-                        "`use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`..."
-                    )
-                    use_cache = False
+                    next_decoder_cache += (layer_outputs[-1],)
+                if output_attentions:
+                    all_self_attentions = all_self_attentions + (layer_outputs[1],)
+                    if self.config.add_cross_attention:
+                        all_cross_attentions = all_cross_attentions + (layer_outputs[2],)
+                """
+                if exit_layers is not None:
+                    raise ValueError("The exit layers should be provided!")
+                else:
+                    # whether a word exit in the current layer, True: exit, False: not exit
+                    # if True, copy the current hidden state to the cache (used in later layers)
+                    exited_signal = torch.eq(exit_layers, i).unsqueeze(-1)
+                    exit_hidden_states = torch.where(exited_signal, hidden_states, exit_hidden_states)
+                    # if all words have exited, then break
+                    has_all_exited = has_all_exited | exited_signal
+                    if torch.all(has_all_exited):
+                        break
+                    # only copy hidden states to the layer higher than the exit layer
+                    copy_signal = torch.le(exit_layers, i).unsqueeze(-1)
+                    hidden_states = torch.where(copy_signal, exit_hidden_states.detach(), hidden_states)
+                """
 
-                def create_custom_forward(module):
-                    def custom_forward(*inputs):
-                        return module(*inputs, past_key_value, output_attentions)
-
-                    return custom_forward
-
-                layer_outputs = torch.utils.checkpoint.checkpoint(
-                    create_custom_forward(layer_module),
-                    hidden_states,
-                    attention_mask,
-                    layer_head_mask,
-                    encoder_hidden_states,
-                    encoder_attention_mask,
-                )
             else:
-                layer_outputs = layer_module(
-                    hidden_states,
-                    attention_mask,
-                    layer_head_mask,
-                    encoder_hidden_states,
-                    encoder_attention_mask,
-                    past_key_value,
-                    output_attentions,
-                )
+                """" Early Exit (Off Ramp) Approach For BertEncoder Layers """
+                if self.training and (dropout_probability < self.layerdrop):  # skip the layer
+                    layer_outputs = (None, None)
 
-            hidden_states = layer_outputs[0]
-            if use_cache:
-                next_decoder_cache += (layer_outputs[-1],)
-            if output_attentions:
-                all_self_attentions = all_self_attentions + (layer_outputs[1],)
-                if self.config.add_cross_attention:
-                    all_cross_attentions = all_cross_attentions + (layer_outputs[2],)
+                else:
+                    if self.gradient_checkpointing and self.training:
+
+                        if use_cache:
+                            logger.warning(
+                                "`use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`..."
+                            )
+                            use_cache = False
+
+                        def create_custom_forward(module):
+                            def custom_forward(*inputs):
+                                return module(*inputs, past_key_value, output_attentions)
+
+                            return custom_forward
+
+                        layer_outputs = torch.utils.checkpoint.checkpoint(
+                            create_custom_forward(layer_module),
+                            hidden_states,
+                            attention_mask,
+                            layer_head_mask,
+                            encoder_hidden_states,
+                            encoder_attention_mask,
+                        )
+                    else:
+                        layer_outputs = layer_module(
+                            hidden_states,
+                            attention_mask,
+                            layer_head_mask,
+                            encoder_hidden_states,
+                            encoder_attention_mask,
+                            past_key_value,
+                            output_attentions,
+                        )
+                    hidden_states = layer_outputs[0]
+
+                if use_cache:
+                    next_decoder_cache += (layer_outputs[-1],)
+                if output_attentions:
+                    all_self_attentions = all_self_attentions + (layer_outputs[1],)
+                    if self.config.add_cross_attention:
+                        all_cross_attentions = all_cross_attentions + (layer_outputs[2],)
 
         if output_hidden_states:
             all_hidden_states = all_hidden_states + (hidden_states,)
@@ -703,13 +826,22 @@ class BertEncoder(nn.Module):
                 ]
                 if v is not None
             )
-        return BaseModelOutputWithPastAndCrossAttentions(
-            last_hidden_state=hidden_states,
-            past_key_values=next_decoder_cache,
-            hidden_states=all_hidden_states,
-            attentions=all_self_attentions,
-            cross_attentions=all_cross_attentions,
-        )
+        if self.config.add_cross_attention:
+            return BaseModelOutputWithPastAndCrossAttentions(
+                last_hidden_state=hidden_states,
+                past_key_values=next_decoder_cache,
+                hidden_states=all_hidden_states,
+                attentions=all_self_attentions,
+                cross_attentions=all_cross_attentions,
+            ), all_intermediate_logits
+        else:
+            return BaseModelOutputWithPastAndCrossAttentions(
+                last_hidden_state=hidden_states,
+                past_key_values=next_decoder_cache,
+                hidden_states=all_hidden_states,
+                attentions=all_self_attentions,
+                cross_attentions=all_cross_attentions,
+            )
 
 
 class BertPooler(nn.Module):
@@ -946,9 +1078,12 @@ class BertModel(BertPreTrainedModel):
     `add_cross_attention` set to `True`; an `encoder_hidden_states` is then expected as an input to the forward pass.
     """
 
-    def __init__(self, config, add_pooling_layer=True):
+    def __init__(self, config: BertConfig, add_pooling_layer=True):
         super().__init__(config)
         self.config = config
+
+        padding_idx, vocab_size = config.pad_token_id, config.vocab_size
+        self.shared = nn.Embedding(vocab_size, config.hidden_size, padding_idx)
 
         if config.is_decoder:
             self.embeddings = BertLatentEmbeddings(config)
@@ -1043,7 +1178,11 @@ class BertModel(BertPreTrainedModel):
         else:
             raise ValueError("You have to specify either input_ids or inputs_embeds")
 
+        self.config.input_shape = input_shape
         batch_size, seq_length = input_shape
+        #print("Input_shape", input_shape)
+        #exit_hidden_states = torch.zeros(hidden_states.size()).to(hidden_states.device)
+        #has_all_exited = torch.zeros(input_shape).unsqueeze(-1).bool()#.to(self.config.output_hidden_states.device)
         device = input_ids.device if input_ids is not None else inputs_embeds.device
 
         # past_key_values_length
@@ -1090,18 +1229,32 @@ class BertModel(BertPreTrainedModel):
             past_key_values_length=past_key_values_length,
             latent=latent,
         )
-        encoder_outputs = self.encoder(
-            embedding_output,
-            attention_mask=extended_attention_mask,
-            head_mask=head_mask,
-            encoder_hidden_states=encoder_hidden_states,
-            encoder_attention_mask=encoder_extended_attention_mask,
-            past_key_values=past_key_values,
-            use_cache=use_cache,
-            output_attentions=output_attentions,
-            output_hidden_states=output_hidden_states,
-            return_dict=return_dict,
-        )
+        if self.config.add_cross_attention:
+            encoder_outputs, exit_hidden_states = self.encoder(
+                embedding_output,
+                attention_mask=extended_attention_mask,
+                head_mask=head_mask,
+                encoder_hidden_states=encoder_hidden_states,
+                encoder_attention_mask=encoder_extended_attention_mask,
+                past_key_values=past_key_values,
+                use_cache=use_cache,
+                output_attentions=output_attentions,
+                output_hidden_states=output_hidden_states,
+                return_dict=return_dict,
+            )
+        else:
+            encoder_outputs = self.encoder(
+                embedding_output,
+                attention_mask=extended_attention_mask,
+                head_mask=head_mask,
+                encoder_hidden_states=encoder_hidden_states,
+                encoder_attention_mask=encoder_extended_attention_mask,
+                past_key_values=past_key_values,
+                use_cache=use_cache,
+                output_attentions=output_attentions,
+                output_hidden_states=output_hidden_states,
+                return_dict=return_dict,
+            )
         sequence_output = encoder_outputs[0]
         pooled_output = self.pooler(sequence_output) if self.pooler is not None else None
 
@@ -1111,15 +1264,34 @@ class BertModel(BertPreTrainedModel):
         if not return_dict:
             return (sequence_output, pooled_output) + encoder_outputs[1:]
 
-        return BaseModelOutputWithPoolingAndCrossAttentions(
-            last_hidden_state=sequence_output,
-            pooler_output=pooled_output,
-            past_key_values=encoder_outputs.past_key_values,
-            hidden_states=encoder_outputs.hidden_states,
-            attentions=encoder_outputs.attentions,
-            cross_attentions=encoder_outputs.cross_attentions,
-            latent=latent,
-        )
+        if self.config.add_cross_attention:
+            return BaseModelOutputWithPoolingAndCrossAttentions(
+                last_hidden_state=sequence_output,
+                pooler_output=pooled_output,
+                #past_key_values=encoder_outputs.past_key_values,
+                past_key_values=past_key_values,
+                hidden_states=output_hidden_states,
+                #hidden_states=encoder_outputs.hidden_states,
+                #attentions=encoder_outputs.attentions,
+                attentions=output_attentions,
+                #cross_attentions=encoder_outputs.cross_attentions,
+                #cross_attentions=encoder_outputs.cross_attentions,
+                latent=latent,
+            ), exit_hidden_states
+        else:
+            return BaseModelOutputWithPoolingAndCrossAttentions(
+                last_hidden_state=sequence_output,
+                pooler_output=pooled_output,
+                #past_key_values=encoder_outputs.past_key_values,
+                past_key_values=past_key_values,
+                hidden_states=output_hidden_states,
+                #hidden_states=encoder_outputs.hidden_states,
+                #attentions=encoder_outputs.attentions,
+                attentions=output_attentions,
+                #cross_attentions=encoder_outputs.cross_attentions,
+                #cross_attentions=encoder_outputs.cross_attentions,
+                latent=latent,
+            )
 
 
 @add_start_docstrings(
@@ -1315,7 +1487,7 @@ class BertLMHeadModel(BertPreTrainedModel):
 
         latent = nn.functional.gelu(self.linear(latent))
 
-        outputs = self.bert(
+        outputs, exit_hidden_states = self.bert(
             input_ids,
             attention_mask=attention_mask,
             token_type_ids=token_type_ids,
@@ -1354,7 +1526,7 @@ class BertLMHeadModel(BertPreTrainedModel):
             hidden_states=outputs.hidden_states,
             attentions=outputs.attentions,
             cross_attentions=outputs.cross_attentions,
-        )
+        ), exit_hidden_states
 
     def prepare_inputs_for_generation(self, input_ids, past=None, attention_mask=None, use_cache=True, **model_kwargs):
         input_shape = input_ids.shape
@@ -1439,7 +1611,6 @@ class BertForMaskedLM(BertPreTrainedModel):
         """
 
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
-
         outputs = self.bert(
             input_ids,
             attention_mask=attention_mask,
