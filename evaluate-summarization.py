@@ -3,17 +3,18 @@ import datasets
 import transformers
 import numpy as np
 import evaluate
+
 from nar_transformers import BertTokenizerFast
 from nar_transformers import BertConfig
 from nar_transformers import EncoderDecoderConfig, EncoderDecoderModel
-from nar_transformers import TrainingArguments, Trainer
+from nar_transformers import TrainingArguments, Trainer, EvalPrediction
 
 import wandb
 os.environ["WANDB_PROJECT"] = "summarization-AACL"
 
 
 model_name = "bert-base-cased"
-batch_size = 22  # change to 16 for full training
+batch_size = 20  # change to 16 for full training
 max_length = 512 # 128 actually works better for MT
 latent_size = 8
 
@@ -37,16 +38,9 @@ def process_data_to_model_inputs(batch):
     return batch
 
 
-train_data = datasets.load_dataset("xsum", split="train")
 val_data = datasets.load_dataset("xsum", split="validation")
+test_data = datasets.load_dataset("xsum", split="test")
 
-train_data = train_data.map(
-    process_data_to_model_inputs,
-    batched=True,
-    batch_size=1024,
-    remove_columns=["document", "summary",],
-    num_proc=32, # set to the number of CPU cores in AF node
-)
 val_data = val_data.map(
     process_data_to_model_inputs,
     batched=True,
@@ -54,10 +48,17 @@ val_data = val_data.map(
     remove_columns=["document", "summary",],
     num_proc=32,
 )
-train_data.set_format(
-    type="torch", columns=["input_ids", "attention_mask", "decoder_input_ids", "decoder_attention_mask", "labels"],
+test_data = test_data.map(
+    process_data_to_model_inputs,
+    batched=True,
+    batch_size=1024,
+    remove_columns=["document", "summary",],
+    num_proc=32,
 )
 val_data.set_format(
+    type="torch", columns=["input_ids", "attention_mask", "decoder_input_ids", "decoder_attention_mask", "labels"],
+)
+test_data.set_format(
     type="torch", columns=["input_ids", "attention_mask", "decoder_input_ids", "decoder_attention_mask", "labels"],
 )
 
@@ -66,25 +67,25 @@ tokenizer.eos_token = tokenizer.sep_token
 
 #model = EncoderDecoderModel.from_encoder_decoder_pretrained(model_name, model_name, latent_size)
 model = EncoderDecoderModel.from_pretrained(
-    "/groups/gac50543/migrated_from_SFA_GPFS/asada/pretraining/wikipedia-en-bert-base-cased-plm0.50-lr5e-5/checkpoint-199820/",
+    "/groups/gac50543/migrated_from_SFA_GPFS/asada/AACL/sum/xsum-smooth0.1-from-pre/checkpoint-30000/",
 )
 model.config.is_vae = False
-model.config.dropout_prob = 0.5
+model.config.dropout_prob = 0.0
 
 # set special tokens
 model.config.decoder_start_token_id = tokenizer.bos_token_id
 model.config.eos_token_id = tokenizer.eos_token_id
 model.config.pad_token_id = tokenizer.pad_token_id
 
+
 # load bleu for validation
 rouge = evaluate.load("rouge")
 special_token_ids = {tokenizer.unk_token_id, tokenizer.sep_token_id,
     tokenizer.pad_token_id, tokenizer.cls_token_id, tokenizer.mask_token_id}
 
-def compute_metrics(pred):
-    labels_ids = pred.label_ids
-    pred_ids = pred.predictions
-    pred_str = tokenizer.batch_decode(pred_ids, skip_special_tokens=True)
+def compute_metrics(p: EvalPrediction):
+    label_ids = p.label_ids
+    pred_ids = p.predictions
     pred_ids = [
         [xx for xx in x if xx not in special_token_ids] for x in pred_ids
     ]
@@ -94,8 +95,8 @@ def compute_metrics(pred):
     ]
     no_rep_pred_str = tokenizer.batch_decode(no_rep_pred_ids, skip_special_tokens=True)
 
-    labels_ids[labels_ids == -100] = tokenizer.pad_token_id
-    label_str = tokenizer.batch_decode(labels_ids, skip_special_tokens=True)
+    label_ids[label_ids == -100] = tokenizer.pad_token_id
+    label_str = tokenizer.batch_decode(label_ids, skip_special_tokens=True)
     #rouge_output = rouge.compute(predictions=pred_str, references=label_str)
     rouge_output = rouge.compute(predictions=no_rep_pred_str, references=label_str)
 
@@ -105,26 +106,25 @@ def compute_metrics(pred):
         "rougeL": round(np.mean(rouge_output["rougeL"]), 4),
     }
 
-
+run_name = "evaluate"
 # set training arguments - these params are not really tuned, feel free to change
-run_name = "xsum-smooth0.1-from-pre"
 training_args = TrainingArguments(
-    output_dir=os.path.join("~/my_data/AACL/sum", run_name),
+    output_dir=os.path.join("~/my_data/summarization/", run_name),
     evaluation_strategy="steps",
     save_strategy="steps",
     per_device_train_batch_size=batch_size,
     per_device_eval_batch_size=batch_size,
-    logging_steps=1000,  # set to 1000 for full training
-    save_steps=5000,  # set to 500 for full training
-    eval_steps=1000,  # set to 8000 for full training
+    logging_steps=500,  # set to 1000 for full training
+    save_steps=5_000,  # set to 500 for full training
+    eval_steps=500,  # set to 8000 for full training
     warmup_ratio=0.1,  # set to 2000 for full training
     learning_rate=1e-04,
-    weight_decay=0.1,
-    num_train_epochs=80,
+    max_steps=100_000,
     overwrite_output_dir=True,
-    save_total_limit=5,
-    fp16=True,
+    save_total_limit=1,
+    bf16=True,
     torch_compile=True,
+    weight_decay=0.01,
     report_to="wandb",
     run_name=run_name,
     gradient_accumulation_steps=1,
@@ -136,9 +136,9 @@ trainer = Trainer(
     tokenizer=tokenizer,
     args=training_args,
     compute_metrics=compute_metrics,
-    train_dataset=train_data,
-    eval_dataset=val_data,
+    train_dataset=val_data,
+    #eval_dataset=val_data,
+    eval_dataset=test_data,
 )
 
-trainer.train()
-#trainer.train(resume_from_checkpoint=True)
+trainer.evaluate()
