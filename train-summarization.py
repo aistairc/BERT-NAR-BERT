@@ -9,11 +9,11 @@ from nar_transformers import EncoderDecoderConfig, EncoderDecoderModel
 from nar_transformers import Seq2SeqTrainingArguments, Seq2SeqTrainer
 
 import wandb
-os.environ["WANDB_PROJECT"] = "summarization"
+os.environ["WANDB_PROJECT"] = "summarization-AACL"
 
 
 model_name = "bert-base-cased"
-batch_size = 20  # change to 16 for full training
+batch_size = 22  # change to 16 for full training
 max_length = 512 # 128 actually works better for MT
 latent_size = 8
 
@@ -64,47 +64,34 @@ val_data.set_format(
 tokenizer.bos_token = tokenizer.cls_token
 tokenizer.eos_token = tokenizer.sep_token
 
-model = EncoderDecoderModel.from_encoder_decoder_pretrained(model_name, model_name, latent_size)
-
-#model = EncoderDecoderModel.from_pretrained(
-#    "/groups/gac50543/migrated_from_SFA_GPFS/asada/pretraining/wikipedia-en-bert-base-cased-noval-mlm-fp32ctc/checkpoint-59946/",
-#)
+#model = EncoderDecoderModel.from_encoder_decoder_pretrained(model_name, model_name, latent_size)
+model = EncoderDecoderModel.from_pretrained(
+    "/groups/gac50543/migrated_from_SFA_GPFS/asada/pretraining/wikipedia-en-bert-base-cased-plm0.50-lr5e-5/checkpoint-199820/",
+)
 model.config.is_vae = False
+model.config.dropout_prob = 0.5
 
 # set special tokens
 model.config.decoder_start_token_id = tokenizer.bos_token_id
 model.config.eos_token_id = tokenizer.eos_token_id
 model.config.pad_token_id = tokenizer.pad_token_id
 
-# sensible parameters for beam search
-model.config.vocab_size = model.config.decoder.vocab_size
-model.config.max_length = max_length + 1
-model.config.min_length = 1
-model.config.no_repeat_ngram_size = 0
-model.config.early_stopping = True
-model.config.length_penalty = 1.0
-model.config.num_beams = 1
-model.config.num_beam_groups = 0
-
-
 # load bleu for validation
 rouge = evaluate.load("rouge")
+special_token_ids = {tokenizer.unk_token_id, tokenizer.sep_token_id,
+    tokenizer.pad_token_id, tokenizer.cls_token_id, tokenizer.mask_token_id}
 
 def compute_metrics(pred):
     labels_ids = pred.label_ids
     pred_ids = pred.predictions
     pred_str = tokenizer.batch_decode(pred_ids, skip_special_tokens=True)
-
+    pred_ids = [
+        [xx for xx in x if xx not in special_token_ids] for x in pred_ids
+    ]
     # Removing repetition tokens
-    def remove_repetition(token_ids):
-        no_repetition_token_ids = []
-        for i, token_id in enumerate(token_ids):
-            if i != len(token_ids) - 1:
-                if token_ids[i + 1] == token_id:
-                    token_id = tokenizer.pad_token_id
-            no_repetition_token_ids.append(token_id)
-        return no_repetition_token_ids
-    no_rep_pred_ids = [remove_repetition(x) for x in pred_ids]
+    no_rep_pred_ids = [
+        [x[i] if i == 0 or x[i-1] != x[i] else tokenizer.pad_token_id for i in range(len(x))] for x in pred_ids
+    ]
     no_rep_pred_str = tokenizer.batch_decode(no_rep_pred_ids, skip_special_tokens=True)
 
     labels_ids[labels_ids == -100] = tokenizer.pad_token_id
@@ -120,25 +107,27 @@ def compute_metrics(pred):
 
 
 # set training arguments - these params are not really tuned, feel free to change
+run_name = "xsum-smooth0.1-from-pre"
 training_args = Seq2SeqTrainingArguments(
-    output_dir="~/my_data/summarization/xsum",
+    output_dir=os.path.join("~/my_data/AACL/sum", run_name),
     evaluation_strategy="steps",
     save_strategy="steps",
     per_device_train_batch_size=batch_size,
     per_device_eval_batch_size=batch_size,
     predict_with_generate=True,
-    logging_steps=500,  # set to 1000 for full training
-    save_steps=5_000,  # set to 500 for full training
-    eval_steps=500,  # set to 8000 for full training
-    warmup_steps=10_000,  # set to 2000 for full training
+    logging_steps=1000,  # set to 1000 for full training
+    save_steps=5000,  # set to 500 for full training
+    eval_steps=1000,  # set to 8000 for full training
+    warmup_ratio=0.1,  # set to 2000 for full training
     learning_rate=1e-04,
-    max_steps=100_000,
+    weight_decay=0.1,
+    num_train_epochs=80,
     overwrite_output_dir=True,
-    save_total_limit=1,
+    save_total_limit=5,
     fp16=True,
-    weight_decay=0.01,
+    torch_compile=True,
     report_to="wandb",
-    run_name="xsum",
+    run_name=run_name,
     gradient_accumulation_steps=1,
 )
 

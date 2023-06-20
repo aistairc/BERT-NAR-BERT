@@ -629,7 +629,6 @@ class EncoderDecoderModel(PreTrainedModel):
             loss_kl = torch.tensor(0.0)
             z, _ = encoder_outputs.latent.chunk(2, -1)
 
-
         # optionally project encoder_hidden_states
         if (
             self.encoder.config.hidden_size != self.decoder.config.hidden_size
@@ -649,8 +648,8 @@ class EncoderDecoderModel(PreTrainedModel):
         # Decode
         decoder_outputs = self.decoder(
             input_ids=decoder_input_ids, # dummy
-            attention_mask=attention_mask,
-            #attention_mask=(attention_mask * 0 + 1),
+            #attention_mask=attention_mask,
+            attention_mask=(attention_mask * 0 + 1),
             #encoder_hidden_states=encoder_hidden_states,
             encoder_hidden_states=cross_attentions,
             encoder_attention_mask=attention_mask,
@@ -669,13 +668,19 @@ class EncoderDecoderModel(PreTrainedModel):
         if labels is not None:
             #warnings.warn(DEPRECATION_WARNING, FutureWarning)
             logits = decoder_outputs.logits if return_dict else decoder_outputs[0]
-            log_probs = logits.log_softmax(-1)
+            probs = logits.softmax(-1)
+            log_probs = probs.log()
+            #log_probs = logits.log_softmax(-1)
             #input_lengths = attention_mask.sum(1)
             input_lengths = (attention_mask * 0 + 1).sum(1)
             targets = decoder_input_ids
             target_lengths = decoder_attention_mask.sum(1)
             loss_ctc_fct = nn.CTCLoss(zero_infinity=True)
-            loss = loss_ctc_fct(log_probs.transpose(0, 1), targets, input_lengths, target_lengths)
+            loss = loss_ctc_fct(log_probs.transpose(0,1), targets, input_lengths, target_lengths)
+
+            kl_tar = torch.full_like(log_probs, 1. / self.config.decoder.vocab_size)
+            loss_kl = kl_tar * (kl_tar.log() - log_probs)
+            loss_kl = loss_kl.sum(-1).mean()
 
         if not return_dict:
             if loss is not None:

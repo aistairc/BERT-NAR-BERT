@@ -9,7 +9,7 @@ from nar_transformers import EncoderDecoderConfig, EncoderDecoderModel
 from nar_transformers import TrainingArguments, Trainer, EvalPrediction
 
 import wandb
-os.environ["WANDB_PROJECT"] = "question-generation"
+os.environ["WANDB_PROJECT"] = "question-generation-AACL"
 
 
 model_name = "bert-base-cased"
@@ -45,7 +45,7 @@ def process_data_to_model_inputs(batch):
 # We use the same data splitting as Du et al. 2017
 json_dir = "/groups/gac50543/migrated_from_SFA_GPFS/asada/corpus/squad-du-split/"
 train_data = datasets.load_dataset("json", data_files=os.path.join(json_dir, "hf-train-v1.1.json"), field="data", split="train")
-val_data = datasets.load_dataset("json", data_files=os.path.join(json_dir, "hf-dev-v1.1.json"), field="data", split="train")
+val_data = datasets.load_dataset("json", data_files=os.path.join(json_dir, "hf-test-v1.1.json"), field="data", split="train")
 
 train_data = train_data.map(
     process_squad_answers,
@@ -86,7 +86,7 @@ model = EncoderDecoderModel.from_pretrained(
 )
 
 model.config.is_vae = False
-model.config.dropout_prob = 0.1
+model.config.dropout_prob = 0.5
 
 # set special tokens
 model.config.decoder_start_token_id = tokenizer.bos_token_id
@@ -97,10 +97,15 @@ model.config.pad_token_id = tokenizer.pad_token_id
 rouge = evaluate.load("rouge")
 bleu = evaluate.load("bleu")
 meteor = evaluate.load("meteor")
+special_token_ids = {tokenizer.unk_token_id, tokenizer.sep_token_id,
+    tokenizer.pad_token_id, tokenizer.cls_token_id, tokenizer.mask_token_id}
 
 def compute_metrics(p: EvalPrediction):
     label_ids = p.label_ids
     pred_ids = p.predictions
+    pred_ids = [
+        [xx for xx in x if xx not in special_token_ids] for x in pred_ids
+    ]
     # Removing repetition tokens
     no_rep_pred_ids = [
         [x[i] if i == 0 or x[i-1] != x[i] else tokenizer.pad_token_id for i in range(len(x))] for x in pred_ids
@@ -120,23 +125,25 @@ def compute_metrics(p: EvalPrediction):
         "meteor": round(np.mean(meteor_output["meteor"]), 4),
     }
 
-run_name = "squad-from-pre"
+run_name = "squad-nomaskdec-smooth0.1-from-pre"
 # set training arguments - these params are not really tuned, feel free to change
 training_args = TrainingArguments(
-    output_dir=os.path.join("~/my_data/qg/", run_name),
+    output_dir=os.path.join("~/my_data/AACL/qg/", run_name),
     logging_strategy="epoch",
     evaluation_strategy="epoch",
     save_strategy="epoch",
+    logging_steps=200,
+    eval_steps=200,
     per_device_train_batch_size=batch_size,
     per_device_eval_batch_size=batch_size,
     gradient_accumulation_steps=1,
     warmup_ratio=0.1,
     learning_rate=5e-05,
-    weight_decay=0.01,
+    weight_decay=0.1,
     num_train_epochs=20,
     overwrite_output_dir=True,
-    save_total_limit=1,
-    bf16=True,
+    save_total_limit=False,
+    fp16=True,
     torch_compile=True,
     report_to="wandb",
     run_name=run_name,
