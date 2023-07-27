@@ -38,6 +38,7 @@ FLAX_MODEL_MAPPING_NAMES = OrderedDict(
         ("clip", "FlaxCLIPModel"),
         ("distilbert", "FlaxDistilBertModel"),
         ("electra", "FlaxElectraModel"),
+        ("gpt-sw3", "FlaxGPT2Model"),
         ("gpt2", "FlaxGPT2Model"),
         ("gpt_neo", "FlaxGPTNeoModel"),
         ("gptj", "FlaxGPTJModel"),
@@ -47,12 +48,16 @@ FLAX_MODEL_MAPPING_NAMES = OrderedDict(
         ("mt5", "FlaxMT5Model"),
         ("opt", "FlaxOPTModel"),
         ("pegasus", "FlaxPegasusModel"),
+        ("regnet", "FlaxRegNetModel"),
+        ("resnet", "FlaxResNetModel"),
         ("roberta", "FlaxRobertaModel"),
+        ("roberta-prelayernorm", "FlaxRobertaPreLayerNormModel"),
         ("roformer", "FlaxRoFormerModel"),
         ("t5", "FlaxT5Model"),
         ("vision-text-dual-encoder", "FlaxVisionTextDualEncoderModel"),
         ("vit", "FlaxViTModel"),
         ("wav2vec2", "FlaxWav2Vec2Model"),
+        ("whisper", "FlaxWhisperModel"),
         ("xglm", "FlaxXGLMModel"),
         ("xlm-roberta", "FlaxXLMRobertaModel"),
     ]
@@ -70,9 +75,11 @@ FLAX_MODEL_FOR_PRETRAINING_MAPPING_NAMES = OrderedDict(
         ("mbart", "FlaxMBartForConditionalGeneration"),
         ("mt5", "FlaxMT5ForConditionalGeneration"),
         ("roberta", "FlaxRobertaForMaskedLM"),
+        ("roberta-prelayernorm", "FlaxRobertaPreLayerNormForMaskedLM"),
         ("roformer", "FlaxRoFormerForMaskedLM"),
         ("t5", "FlaxT5ForConditionalGeneration"),
         ("wav2vec2", "FlaxWav2Vec2ForPreTraining"),
+        ("whisper", "FlaxWhisperForConditionalGeneration"),
         ("xlm-roberta", "FlaxXLMRobertaForMaskedLM"),
     ]
 )
@@ -88,6 +95,7 @@ FLAX_MODEL_FOR_MASKED_LM_MAPPING_NAMES = OrderedDict(
         ("electra", "FlaxElectraForMaskedLM"),
         ("mbart", "FlaxMBartForConditionalGeneration"),
         ("roberta", "FlaxRobertaForMaskedLM"),
+        ("roberta-prelayernorm", "FlaxRobertaPreLayerNormForMaskedLM"),
         ("roformer", "FlaxRoFormerForMaskedLM"),
         ("xlm-roberta", "FlaxXLMRobertaForMaskedLM"),
     ]
@@ -113,6 +121,8 @@ FLAX_MODEL_FOR_IMAGE_CLASSIFICATION_MAPPING_NAMES = OrderedDict(
     [
         # Model for Image-classsification
         ("beit", "FlaxBeitForImageClassification"),
+        ("regnet", "FlaxRegNetForImageClassification"),
+        ("resnet", "FlaxResNetForImageClassification"),
         ("vit", "FlaxViTForImageClassification"),
     ]
 )
@@ -130,12 +140,15 @@ FLAX_MODEL_FOR_CAUSAL_LM_MAPPING_NAMES = OrderedDict(
         ("bert", "FlaxBertForCausalLM"),
         ("big_bird", "FlaxBigBirdForCausalLM"),
         ("electra", "FlaxElectraForCausalLM"),
+        ("gpt-sw3", "FlaxGPT2LMHeadModel"),
         ("gpt2", "FlaxGPT2LMHeadModel"),
         ("gpt_neo", "FlaxGPTNeoForCausalLM"),
         ("gptj", "FlaxGPTJForCausalLM"),
         ("opt", "FlaxOPTForCausalLM"),
         ("roberta", "FlaxRobertaForCausalLM"),
+        ("roberta-prelayernorm", "FlaxRobertaPreLayerNormForCausalLM"),
         ("xglm", "FlaxXGLMForCausalLM"),
+        ("xlm-roberta", "FlaxXLMRobertaForCausalLM"),
     ]
 )
 
@@ -150,6 +163,7 @@ FLAX_MODEL_FOR_SEQUENCE_CLASSIFICATION_MAPPING_NAMES = OrderedDict(
         ("electra", "FlaxElectraForSequenceClassification"),
         ("mbart", "FlaxMBartForSequenceClassification"),
         ("roberta", "FlaxRobertaForSequenceClassification"),
+        ("roberta-prelayernorm", "FlaxRobertaPreLayerNormForSequenceClassification"),
         ("roformer", "FlaxRoFormerForSequenceClassification"),
         ("xlm-roberta", "FlaxXLMRobertaForSequenceClassification"),
     ]
@@ -166,6 +180,7 @@ FLAX_MODEL_FOR_QUESTION_ANSWERING_MAPPING_NAMES = OrderedDict(
         ("electra", "FlaxElectraForQuestionAnswering"),
         ("mbart", "FlaxMBartForQuestionAnswering"),
         ("roberta", "FlaxRobertaForQuestionAnswering"),
+        ("roberta-prelayernorm", "FlaxRobertaPreLayerNormForQuestionAnswering"),
         ("roformer", "FlaxRoFormerForQuestionAnswering"),
         ("xlm-roberta", "FlaxXLMRobertaForQuestionAnswering"),
     ]
@@ -180,6 +195,7 @@ FLAX_MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING_NAMES = OrderedDict(
         ("distilbert", "FlaxDistilBertForTokenClassification"),
         ("electra", "FlaxElectraForTokenClassification"),
         ("roberta", "FlaxRobertaForTokenClassification"),
+        ("roberta-prelayernorm", "FlaxRobertaPreLayerNormForTokenClassification"),
         ("roformer", "FlaxRoFormerForTokenClassification"),
         ("xlm-roberta", "FlaxXLMRobertaForTokenClassification"),
     ]
@@ -194,6 +210,7 @@ FLAX_MODEL_FOR_MULTIPLE_CHOICE_MAPPING_NAMES = OrderedDict(
         ("distilbert", "FlaxDistilBertForMultipleChoice"),
         ("electra", "FlaxElectraForMultipleChoice"),
         ("roberta", "FlaxRobertaForMultipleChoice"),
+        ("roberta-prelayernorm", "FlaxRobertaPreLayerNormForMultipleChoice"),
         ("roformer", "FlaxRoFormerForMultipleChoice"),
         ("xlm-roberta", "FlaxXLMRobertaForMultipleChoice"),
     ]
@@ -208,6 +225,7 @@ FLAX_MODEL_FOR_NEXT_SENTENCE_PREDICTION_MAPPING_NAMES = OrderedDict(
 FLAX_MODEL_FOR_SPEECH_SEQ_2_SEQ_MAPPING_NAMES = OrderedDict(
     [
         ("speech-encoder-decoder", "FlaxSpeechEncoderDecoderModel"),
+        ("whisper", "FlaxWhisperForConditionalGeneration"),
     ]
 )
 

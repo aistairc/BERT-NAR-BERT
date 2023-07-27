@@ -16,8 +16,7 @@
 
 import copy
 
-#from ...configuration_utils import PretrainedConfig
-from transformers import PretrainedConfig
+from ...configuration_utils import PretrainedConfig
 from ...utils import logging
 
 

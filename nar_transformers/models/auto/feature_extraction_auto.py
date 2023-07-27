@@ -40,6 +40,7 @@ FEATURE_EXTRACTOR_MAPPING_NAMES = OrderedDict(
         ("audio-spectrogram-transformer", "ASTFeatureExtractor"),
         ("beit", "BeitFeatureExtractor"),
         ("chinese_clip", "ChineseCLIPFeatureExtractor"),
+        ("clap", "ClapFeatureExtractor"),
         ("clip", "CLIPFeatureExtractor"),
         ("clipseg", "ViTFeatureExtractor"),
         ("conditional_detr", "ConditionalDetrFeatureExtractor"),
@@ -73,10 +74,17 @@ FEATURE_EXTRACTOR_MAPPING_NAMES = OrderedDict(
         ("regnet", "ConvNextFeatureExtractor"),
         ("resnet", "ConvNextFeatureExtractor"),
         ("segformer", "SegformerFeatureExtractor"),
+        ("sew", "Wav2Vec2FeatureExtractor"),
+        ("sew-d", "Wav2Vec2FeatureExtractor"),
         ("speech_to_text", "Speech2TextFeatureExtractor"),
+        ("speecht5", "SpeechT5FeatureExtractor"),
         ("swin", "ViTFeatureExtractor"),
         ("swinv2", "ViTFeatureExtractor"),
         ("table-transformer", "DetrFeatureExtractor"),
+        ("timesformer", "VideoMAEFeatureExtractor"),
+        ("tvlt", "TvltFeatureExtractor"),
+        ("unispeech", "Wav2Vec2FeatureExtractor"),
+        ("unispeech-sat", "Wav2Vec2FeatureExtractor"),
         ("van", "ConvNextFeatureExtractor"),
         ("videomae", "VideoMAEFeatureExtractor"),
         ("vilt", "ViltFeatureExtractor"),
@@ -85,6 +93,7 @@ FEATURE_EXTRACTOR_MAPPING_NAMES = OrderedDict(
         ("vit_msn", "ViTFeatureExtractor"),
         ("wav2vec2", "Wav2Vec2FeatureExtractor"),
         ("wav2vec2-conformer", "Wav2Vec2FeatureExtractor"),
+        ("wavlm", "Wav2Vec2FeatureExtractor"),
         ("whisper", "WhisperFeatureExtractor"),
         ("xclip", "CLIPFeatureExtractor"),
         ("yolos", "YolosFeatureExtractor"),
@@ -294,7 +303,7 @@ class AutoFeatureExtractor:
         >>> feature_extractor = AutoFeatureExtractor.from_pretrained("facebook/wav2vec2-base-960h")
 
         >>> # If feature extractor files are in a directory (e.g. feature extractor was saved using *save_pretrained('./test/saved_model/')*)
-        >>> feature_extractor = AutoFeatureExtractor.from_pretrained("./test/saved_model/")
+        >>> # feature_extractor = AutoFeatureExtractor.from_pretrained("./test/saved_model/")
         ```"""
         config = kwargs.pop("config", None)
         trust_remote_code = kwargs.pop("trust_remote_code", False)
@@ -334,6 +343,7 @@ class AutoFeatureExtractor:
                 feature_extractor_class = get_class_from_dynamic_module(
                     pretrained_model_name_or_path, module_file + ".py", class_name, **kwargs
                 )
+                feature_extractor_class.register_for_auto_class()
             else:
                 feature_extractor_class = feature_extractor_class_from_name(feature_extractor_class)
 

@@ -1,7 +1,3 @@
-# flake8: noqa
-# There's no way to ignore "F401 '...' imported but unused" warnings in this
-# module, but to preserve other warnings. So, don't check this module at all.
-
 # Copyright 2020 The HuggingFace Team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -67,11 +63,13 @@ else:
         "MODEL_FOR_SPEECH_SEQ_2_SEQ_MAPPING",
         "MODEL_FOR_TABLE_QUESTION_ANSWERING_MAPPING",
         "MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING",
+        "MODEL_FOR_UNIVERSAL_SEGMENTATION_MAPPING",
         "MODEL_FOR_VIDEO_CLASSIFICATION_MAPPING",
         "MODEL_FOR_VISION_2_SEQ_MAPPING",
         "MODEL_FOR_VISUAL_QUESTION_ANSWERING_MAPPING",
         "MODEL_MAPPING",
         "MODEL_WITH_LM_HEAD_MAPPING",
+        "MODEL_FOR_ZERO_SHOT_IMAGE_CLASSIFICATION_MAPPING",
         "MODEL_FOR_ZERO_SHOT_OBJECT_DETECTION_MAPPING",
         "AutoModel",
         "AutoBackbone",
@@ -97,11 +95,13 @@ else:
         "AutoModelForSpeechSeq2Seq",
         "AutoModelForTableQuestionAnswering",
         "AutoModelForTokenClassification",
+        "AutoModelForUniversalSegmentation",
         "AutoModelForVideoClassification",
         "AutoModelForVision2Seq",
         "AutoModelForVisualQuestionAnswering",
         "AutoModelForDocumentQuestionAnswering",
         "AutoModelWithLMHead",
+        "AutoModelForZeroShotImageClassification",
         "AutoModelForZeroShotObjectDetection",
     ]
 
@@ -128,6 +128,7 @@ else:
         "TF_MODEL_FOR_TABLE_QUESTION_ANSWERING_MAPPING",
         "TF_MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING",
         "TF_MODEL_FOR_VISION_2_SEQ_MAPPING",
+        "TF_MODEL_FOR_ZERO_SHOT_IMAGE_CLASSIFICATION_MAPPING",
         "TF_MODEL_MAPPING",
         "TF_MODEL_WITH_LM_HEAD_MAPPING",
         "TFAutoModel",
@@ -146,6 +147,7 @@ else:
         "TFAutoModelForTableQuestionAnswering",
         "TFAutoModelForTokenClassification",
         "TFAutoModelForVision2Seq",
+        "TFAutoModelForZeroShotImageClassification",
         "TFAutoModelWithLMHead",
     ]
 
@@ -165,6 +167,7 @@ else:
         "FLAX_MODEL_FOR_QUESTION_ANSWERING_MAPPING",
         "FLAX_MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING",
         "FLAX_MODEL_FOR_SEQUENCE_CLASSIFICATION_MAPPING",
+        "FLAX_MODEL_FOR_SPEECH_SEQ_2_SEQ_MAPPING",
         "FLAX_MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING",
         "FLAX_MODEL_FOR_VISION_2_SEQ_MAPPING",
         "FLAX_MODEL_MAPPING",
@@ -178,6 +181,7 @@ else:
         "FlaxAutoModelForQuestionAnswering",
         "FlaxAutoModelForSeq2SeqLM",
         "FlaxAutoModelForSequenceClassification",
+        "FlaxAutoModelForSpeechSeq2Seq",
         "FlaxAutoModelForTokenClassification",
         "FlaxAutoModelForVision2Seq",
     ]
@@ -222,9 +226,11 @@ if TYPE_CHECKING:
             MODEL_FOR_SPEECH_SEQ_2_SEQ_MAPPING,
             MODEL_FOR_TABLE_QUESTION_ANSWERING_MAPPING,
             MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING,
+            MODEL_FOR_UNIVERSAL_SEGMENTATION_MAPPING,
             MODEL_FOR_VIDEO_CLASSIFICATION_MAPPING,
             MODEL_FOR_VISION_2_SEQ_MAPPING,
             MODEL_FOR_VISUAL_QUESTION_ANSWERING_MAPPING,
+            MODEL_FOR_ZERO_SHOT_IMAGE_CLASSIFICATION_MAPPING,
             MODEL_FOR_ZERO_SHOT_OBJECT_DETECTION_MAPPING,
             MODEL_MAPPING,
             MODEL_WITH_LM_HEAD_MAPPING,
@@ -253,9 +259,11 @@ if TYPE_CHECKING:
             AutoModelForSpeechSeq2Seq,
             AutoModelForTableQuestionAnswering,
             AutoModelForTokenClassification,
+            AutoModelForUniversalSegmentation,
             AutoModelForVideoClassification,
             AutoModelForVision2Seq,
             AutoModelForVisualQuestionAnswering,
+            AutoModelForZeroShotImageClassification,
             AutoModelForZeroShotObjectDetection,
             AutoModelWithLMHead,
         )
@@ -283,6 +291,7 @@ if TYPE_CHECKING:
             TF_MODEL_FOR_TABLE_QUESTION_ANSWERING_MAPPING,
             TF_MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING,
             TF_MODEL_FOR_VISION_2_SEQ_MAPPING,
+            TF_MODEL_FOR_ZERO_SHOT_IMAGE_CLASSIFICATION_MAPPING,
             TF_MODEL_MAPPING,
             TF_MODEL_WITH_LM_HEAD_MAPPING,
             TFAutoModel,
@@ -301,6 +310,7 @@ if TYPE_CHECKING:
             TFAutoModelForTableQuestionAnswering,
             TFAutoModelForTokenClassification,
             TFAutoModelForVision2Seq,
+            TFAutoModelForZeroShotImageClassification,
             TFAutoModelWithLMHead,
         )
 
@@ -320,6 +330,7 @@ if TYPE_CHECKING:
             FLAX_MODEL_FOR_QUESTION_ANSWERING_MAPPING,
             FLAX_MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING,
             FLAX_MODEL_FOR_SEQUENCE_CLASSIFICATION_MAPPING,
+            FLAX_MODEL_FOR_SPEECH_SEQ_2_SEQ_MAPPING,
             FLAX_MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING,
             FLAX_MODEL_FOR_VISION_2_SEQ_MAPPING,
             FLAX_MODEL_MAPPING,
@@ -333,6 +344,7 @@ if TYPE_CHECKING:
             FlaxAutoModelForQuestionAnswering,
             FlaxAutoModelForSeq2SeqLM,
             FlaxAutoModelForSequenceClassification,
+            FlaxAutoModelForSpeechSeq2Seq,
             FlaxAutoModelForTokenClassification,
             FlaxAutoModelForVision2Seq,
         )

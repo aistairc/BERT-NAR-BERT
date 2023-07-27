@@ -37,47 +37,66 @@ logger = logging.get_logger(__name__)
 
 IMAGE_PROCESSOR_MAPPING_NAMES = OrderedDict(
     [
+        ("align", "EfficientNetImageProcessor"),
         ("beit", "BeitImageProcessor"),
+        ("bit", "BitImageProcessor"),
+        ("blip", "BlipImageProcessor"),
+        ("blip-2", "BlipImageProcessor"),
+        ("bridgetower", "BridgeTowerImageProcessor"),
         ("chinese_clip", "ChineseCLIPImageProcessor"),
         ("clip", "CLIPImageProcessor"),
         ("clipseg", "ViTImageProcessor"),
         ("conditional_detr", "ConditionalDetrImageProcessor"),
         ("convnext", "ConvNextImageProcessor"),
+        ("convnextv2", "ConvNextImageProcessor"),
         ("cvt", "ConvNextImageProcessor"),
         ("data2vec-vision", "BeitImageProcessor"),
         ("deformable_detr", "DeformableDetrImageProcessor"),
         ("deit", "DeiTImageProcessor"),
+        ("deta", "DetaImageProcessor"),
         ("detr", "DetrImageProcessor"),
         ("dinat", "ViTImageProcessor"),
         ("donut-swin", "DonutImageProcessor"),
         ("dpt", "DPTImageProcessor"),
+        ("efficientformer", "EfficientFormerImageProcessor"),
+        ("efficientnet", "EfficientNetImageProcessor"),
         ("flava", "FlavaImageProcessor"),
+        ("git", "CLIPImageProcessor"),
         ("glpn", "GLPNImageProcessor"),
         ("groupvit", "CLIPImageProcessor"),
         ("imagegpt", "ImageGPTImageProcessor"),
         ("layoutlmv2", "LayoutLMv2ImageProcessor"),
         ("layoutlmv3", "LayoutLMv3ImageProcessor"),
         ("levit", "LevitImageProcessor"),
+        ("mask2former", "Mask2FormerImageProcessor"),
         ("maskformer", "MaskFormerImageProcessor"),
+        ("mgp-str", "ViTImageProcessor"),
         ("mobilenet_v1", "MobileNetV1ImageProcessor"),
         ("mobilenet_v2", "MobileNetV2ImageProcessor"),
         ("mobilenet_v2", "MobileNetV2ImageProcessor"),
         ("mobilevit", "MobileViTImageProcessor"),
         ("mobilevit", "MobileViTImageProcessor"),
         ("nat", "ViTImageProcessor"),
+        ("oneformer", "OneFormerImageProcessor"),
         ("owlvit", "OwlViTImageProcessor"),
         ("perceiver", "PerceiverImageProcessor"),
+        ("pix2struct", "Pix2StructImageProcessor"),
         ("poolformer", "PoolFormerImageProcessor"),
         ("regnet", "ConvNextImageProcessor"),
         ("resnet", "ConvNextImageProcessor"),
         ("segformer", "SegformerImageProcessor"),
         ("swin", "ViTImageProcessor"),
+        ("swin2sr", "Swin2SRImageProcessor"),
         ("swinv2", "ViTImageProcessor"),
         ("table-transformer", "DetrImageProcessor"),
+        ("timesformer", "VideoMAEImageProcessor"),
+        ("tvlt", "TvltImageProcessor"),
+        ("upernet", "SegformerImageProcessor"),
         ("van", "ConvNextImageProcessor"),
         ("videomae", "VideoMAEImageProcessor"),
         ("vilt", "ViltImageProcessor"),
         ("vit", "ViTImageProcessor"),
+        ("vit_hybrid", "ViTHybridImageProcessor"),
         ("vit_mae", "ViTImageProcessor"),
         ("vit_msn", "ViTImageProcessor"),
         ("xclip", "CLIPImageProcessor"),
@@ -288,7 +307,7 @@ class AutoImageProcessor:
         >>> image_processor = AutoImageProcessor.from_pretrained("google/vit-base-patch16-224-in21k")
 
         >>> # If image processor files are in a directory (e.g. image processor was saved using *save_pretrained('./test/saved_model/')*)
-        >>> image_processor = AutoImageProcessor.from_pretrained("./test/saved_model/")
+        >>> # image_processor = AutoImageProcessor.from_pretrained("./test/saved_model/")
         ```"""
         config = kwargs.pop("config", None)
         trust_remote_code = kwargs.pop("trust_remote_code", False)
@@ -346,6 +365,7 @@ class AutoImageProcessor:
                 image_processor_class = get_class_from_dynamic_module(
                     pretrained_model_name_or_path, module_file + ".py", class_name, **kwargs
                 )
+                image_processor_class.register_for_auto_class()
             else:
                 image_processor_class = image_processor_class_from_name(image_processor_class)
 

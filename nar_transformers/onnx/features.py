@@ -267,7 +267,7 @@ class FeaturesManager:
             onnx_config_cls="models.deberta_v2.DebertaV2OnnxConfig",
         ),
         "deit": supported_features_mapping(
-            "default", "image-classification", "masked-im", onnx_config_cls="models.deit.DeiTOnnxConfig"
+            "default", "image-classification", onnx_config_cls="models.deit.DeiTOnnxConfig"
         ),
         "detr": supported_features_mapping(
             "default",
@@ -408,12 +408,12 @@ class FeaturesManager:
             "question-answering",
             onnx_config_cls="models.mobilebert.MobileBertOnnxConfig",
         ),
-        "mobilenet_v1": supported_features_mapping(
+        "mobilenet-v1": supported_features_mapping(
             "default",
             "image-classification",
             onnx_config_cls="models.mobilenet_v1.MobileNetV1OnnxConfig",
         ),
-        "mobilenet_v2": supported_features_mapping(
+        "mobilenet-v2": supported_features_mapping(
             "default",
             "image-classification",
             onnx_config_cls="models.mobilenet_v2.MobileNetV2OnnxConfig",
@@ -446,6 +446,19 @@ class FeaturesManager:
             "masked-lm",
             "sequence-classification",
             onnx_config_cls="models.perceiver.PerceiverOnnxConfig",
+        ),
+        "poolformer": supported_features_mapping(
+            "default", "image-classification", onnx_config_cls="models.poolformer.PoolFormerOnnxConfig"
+        ),
+        "rembert": supported_features_mapping(
+            "default",
+            "masked-lm",
+            "causal-lm",
+            "sequence-classification",
+            "multiple-choice",
+            "token-classification",
+            "question-answering",
+            onnx_config_cls="models.rembert.RemBertOnnxConfig",
         ),
         "resnet": supported_features_mapping(
             "default",
@@ -502,7 +515,7 @@ class FeaturesManager:
             "vision2seq-lm", onnx_config_cls="models.vision_encoder_decoder.VisionEncoderDecoderOnnxConfig"
         ),
         "vit": supported_features_mapping(
-            "default", "image-classification", "masked-im", onnx_config_cls="models.vit.ViTOnnxConfig"
+            "default", "image-classification", onnx_config_cls="models.vit.ViTOnnxConfig"
         ),
         "whisper": supported_features_mapping(
             "default",

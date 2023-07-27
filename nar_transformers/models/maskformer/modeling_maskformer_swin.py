@@ -27,7 +27,7 @@ from torch import Tensor, nn
 from ...activations import ACT2FN
 from ...file_utils import ModelOutput
 from ...modeling_outputs import BackboneOutput
-from ...modeling_utils import PreTrainedModel
+from ...modeling_utils import BackboneMixin, PreTrainedModel
 from ...pytorch_utils import find_pruneable_heads_and_indices, meshgrid, prune_linear_layer
 from .configuration_maskformer_swin import MaskFormerSwinConfig
 
@@ -285,8 +285,8 @@ class MaskFormerSwinDropPath(nn.Module):
         super().__init__()
         self.drop_prob = drop_prob
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return drop_path(x, self.drop_prob, self.training)
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        return drop_path(hidden_states, self.drop_prob, self.training)
 
     def extra_repr(self) -> str:
         return "p={}".format(self.drop_prob)
@@ -837,7 +837,7 @@ class MaskFormerSwinModel(MaskFormerSwinPreTrainedModel):
         )
 
 
-class MaskFormerSwinBackbone(MaskFormerSwinPreTrainedModel):
+class MaskFormerSwinBackbone(MaskFormerSwinPreTrainedModel, BackboneMixin):
     """
     MaskFormerSwin backbone, designed especially for the MaskFormer framework.
 
@@ -855,20 +855,21 @@ class MaskFormerSwinBackbone(MaskFormerSwinPreTrainedModel):
         self.stage_names = config.stage_names
         self.model = MaskFormerSwinModel(config)
 
-        self.out_features = config.out_features
+        self.out_features = config.out_features if config.out_features is not None else [self.stage_names[-1]]
         if "stem" in self.out_features:
             raise ValueError("This backbone does not support 'stem' in the `out_features`.")
 
-        num_features = [int(config.embed_dim * 2**i) for i in range(len(config.depths))]
-        self.out_feature_channels = {}
-        for i, stage in enumerate(self.stage_names[1:]):
-            self.out_feature_channels[stage] = num_features[i]
+        if config.out_indices is not None:
+            self.out_indices = config.out_indices
+        else:
+            self.out_indices = tuple(i for i, layer in enumerate(self.stage_names) if layer in self.out_features)
+        self.num_features = [config.embed_dim] + [int(config.embed_dim * 2**i) for i in range(len(config.depths))]
+        self.hidden_states_norms = nn.ModuleList(
+            [nn.LayerNorm(num_channels) for num_channels in self.num_features[1:]]
+        )
 
-        self.hidden_states_norms = nn.ModuleList([nn.LayerNorm(num_channels) for num_channels in self.channels])
-
-    @property
-    def channels(self):
-        return [self.out_feature_channels[name] for name in self.out_features]
+        # Initialize weights and apply final processing
+        self.post_init()
 
     def forward(
         self,
@@ -890,10 +891,10 @@ class MaskFormerSwinBackbone(MaskFormerSwinPreTrainedModel):
         # we skip the stem
         hidden_states = outputs.hidden_states[1:]
 
-        feature_maps = ()
         # we need to reshape the hidden states to their original spatial dimensions
         # spatial dimensions contains all the heights and widths of each stage, including after the embeddings
         spatial_dimensions: Tuple[Tuple[int, int]] = outputs.hidden_states_spatial_dimensions
+        feature_maps = ()
         for i, (hidden_state, stage, (height, width)) in enumerate(
             zip(hidden_states, self.stage_names[1:], spatial_dimensions)
         ):

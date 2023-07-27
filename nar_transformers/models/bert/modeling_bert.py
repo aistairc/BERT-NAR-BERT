@@ -56,7 +56,6 @@ logger = logging.get_logger(__name__)
 
 _CHECKPOINT_FOR_DOC = "bert-base-uncased"
 _CONFIG_FOR_DOC = "BertConfig"
-_TOKENIZER_FOR_DOC = "BertTokenizer"
 
 # TokenClassification docstring
 _CHECKPOINT_FOR_TOKEN_CLASSIFICATION = "dbmdz/bert-large-cased-finetuned-conll03-english"
@@ -205,7 +204,7 @@ class BertEmbeddings(nn.Module):
         position_ids: Optional[torch.LongTensor] = None,
         inputs_embeds: Optional[torch.FloatTensor] = None,
         past_key_values_length: int = 0,
-        latent: Optional[torch.FloatTensor] = None,
+        latent=None,
     ) -> torch.Tensor:
         if input_ids is not None:
             input_shape = input_ids.size()
@@ -239,6 +238,7 @@ class BertEmbeddings(nn.Module):
         embeddings = self.LayerNorm(embeddings)
         embeddings = self.dropout(embeddings)
         return embeddings
+
 
 class BertLatentEmbeddings(nn.Module):
     """Construct the embeddings from word, position and token_type embeddings."""
@@ -290,18 +290,18 @@ class BertLatentEmbeddings(nn.Module):
             else:
                 token_type_ids = torch.zeros(input_shape, dtype=torch.long, device=self.position_ids.device)
 
-        if inputs_embeds is None:
-            inputs_embeds = self.word_embeddings(input_ids)
+        #if inputs_embeds is None:
+        #    inputs_embeds = self.word_embeddings(input_ids)
         token_type_embeddings = self.token_type_embeddings(token_type_ids)
 
         embeddings = latent + token_type_embeddings
         if self.position_embedding_type == "absolute":
             position_embeddings = self.position_embeddings(position_ids)
             embeddings += position_embeddings
-
         embeddings = self.LayerNorm(embeddings)
         embeddings = self.dropout(embeddings)
         return embeddings
+
 
 class BertSelfAttention(nn.Module):
     def __init__(self, config, position_embedding_type=None):
@@ -538,8 +538,8 @@ class BertLayer(nn.Module):
         self.is_decoder = config.is_decoder
         self.add_cross_attention = config.add_cross_attention
         if self.add_cross_attention:
-            #if not self.is_decoder:
-            #    raise ValueError(f"{self} should be used as a decoder model if cross attention is added")
+            if not self.is_decoder:
+                raise ValueError(f"{self} should be used as a decoder model if cross attention is added")
             self.crossattention = BertAttention(config, position_embedding_type="absolute")
         self.intermediate = BertIntermediate(config)
         self.output = BertOutput(config)
@@ -639,6 +639,13 @@ class BertEncoder(nn.Module):
         all_self_attentions = () if output_attentions else None
         all_cross_attentions = () if output_attentions and self.config.add_cross_attention else None
 
+        if self.gradient_checkpointing and self.training:
+            if use_cache:
+                logger.warning_once(
+                    "`use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`..."
+                )
+                use_cache = False
+
         next_decoder_cache = () if use_cache else None
         for i, layer_module in enumerate(self.layer):
             if output_hidden_states:
@@ -648,12 +655,6 @@ class BertEncoder(nn.Module):
             past_key_value = past_key_values[i] if past_key_values is not None else None
 
             if self.gradient_checkpointing and self.training:
-
-                if use_cache:
-                    logger.warning(
-                        "`use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`..."
-                    )
-                    use_cache = False
 
                 def create_custom_forward(module):
                     def custom_forward(*inputs):
@@ -884,7 +885,7 @@ BERT_INPUTS_DOCSTRING = r"""
         input_ids (`torch.LongTensor` of shape `({0})`):
             Indices of input sequence tokens in the vocabulary.
 
-            Indices can be obtained using [`BertTokenizer`]. See [`PreTrainedTokenizer.encode`] and
+            Indices can be obtained using [`AutoTokenizer`]. See [`PreTrainedTokenizer.encode`] and
             [`PreTrainedTokenizer.__call__`] for details.
 
             [What are input IDs?](../glossary#input-ids)
@@ -981,7 +982,6 @@ class BertModel(BertPreTrainedModel):
 
     @add_start_docstrings_to_model_forward(BERT_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
     @add_code_sample_docstrings(
-        processor_class=_TOKENIZER_FOR_DOC,
         checkpoint=_CHECKPOINT_FOR_DOC,
         output_type=BaseModelOutputWithPoolingAndCrossAttentions,
         config_class=_CONFIG_FOR_DOC,
@@ -1182,10 +1182,10 @@ class BertForPreTraining(BertPreTrainedModel):
         Example:
 
         ```python
-        >>> from transformers import BertTokenizer, BertForPreTraining
+        >>> from transformers import AutoTokenizer, BertForPreTraining
         >>> import torch
 
-        >>> tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
+        >>> tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
         >>> model = BertForPreTraining.from_pretrained("bert-base-uncased")
 
         >>> inputs = tokenizer("Hello, my dog is cute", return_tensors="pt")
@@ -1236,7 +1236,6 @@ class BertForPreTraining(BertPreTrainedModel):
     """Bert Model with a `language modeling` head on top for CLM fine-tuning.""", BERT_START_DOCSTRING
 )
 class BertLMHeadModel(BertPreTrainedModel):
-
     _keys_to_ignore_on_load_unexpected = [r"pooler"]
     _keys_to_ignore_on_load_missing = [r"position_ids", r"predictions.decoder.bias", r"cls.predictions.decoder.weight"]
 
@@ -1262,7 +1261,6 @@ class BertLMHeadModel(BertPreTrainedModel):
 
     @add_start_docstrings_to_model_forward(BERT_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
     @add_code_sample_docstrings(
-        processor_class=_TOKENIZER_FOR_DOC,
         checkpoint=_CHECKPOINT_FOR_DOC,
         output_type=CausalLMOutputWithCrossAttentions,
         config_class=_CONFIG_FOR_DOC,
@@ -1282,8 +1280,8 @@ class BertLMHeadModel(BertPreTrainedModel):
         use_cache: Optional[bool] = None,
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
-        latent: Optional[torch.Tensor] = None,
         return_dict: Optional[bool] = None,
+        latent: Optional[torch.Tensor] = None,
     ) -> Union[Tuple[torch.Tensor], CausalLMOutputWithCrossAttentions]:
         r"""
         encoder_hidden_states  (`torch.FloatTensor` of shape `(batch_size, sequence_length, hidden_size)`, *optional*):
@@ -1328,8 +1326,8 @@ class BertLMHeadModel(BertPreTrainedModel):
             use_cache=use_cache,
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
-            latent=latent,
             return_dict=return_dict,
+            latent=latent,
         )
 
         sequence_output = outputs[0]
@@ -1356,33 +1354,34 @@ class BertLMHeadModel(BertPreTrainedModel):
             cross_attentions=outputs.cross_attentions,
         )
 
-    def prepare_inputs_for_generation(self, input_ids, past=None, attention_mask=None, use_cache=True, **model_kwargs):
+    def prepare_inputs_for_generation(
+        self, input_ids, past_key_values=None, attention_mask=None, use_cache=True, **model_kwargs
+    ):
         input_shape = input_ids.shape
         # if model is used as a decoder in encoder-decoder model, the decoder attention mask is created on the fly
         if attention_mask is None:
             attention_mask = input_ids.new_ones(input_shape)
 
-        # cut decoder_input_ids if past is used
-        if past is not None:
+        # cut decoder_input_ids if past_key_values is used
+        if past_key_values is not None:
             input_ids = input_ids[:, -1:]
 
         return {
             "input_ids": input_ids,
             "attention_mask": attention_mask,
-            "past_key_values": past,
+            "past_key_values": past_key_values,
             "use_cache": use_cache,
         }
 
-    def _reorder_cache(self, past, beam_idx):
+    def _reorder_cache(self, past_key_values, beam_idx):
         reordered_past = ()
-        for layer_past in past:
+        for layer_past in past_key_values:
             reordered_past += (tuple(past_state.index_select(0, beam_idx) for past_state in layer_past),)
         return reordered_past
 
 
 @add_start_docstrings("""Bert Model with a `language modeling` head on top.""", BERT_START_DOCSTRING)
 class BertForMaskedLM(BertPreTrainedModel):
-
     _keys_to_ignore_on_load_unexpected = [r"pooler"]
     _keys_to_ignore_on_load_missing = [r"position_ids", r"predictions.decoder.bias", r"cls.predictions.decoder.weight"]
 
@@ -1409,7 +1408,6 @@ class BertForMaskedLM(BertPreTrainedModel):
 
     @add_start_docstrings_to_model_forward(BERT_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
     @add_code_sample_docstrings(
-        processor_class=_TOKENIZER_FOR_DOC,
         checkpoint=_CHECKPOINT_FOR_DOC,
         output_type=MaskedLMOutput,
         config_class=_CONFIG_FOR_DOC,
@@ -1533,10 +1531,10 @@ class BertForNextSentencePrediction(BertPreTrainedModel):
         Example:
 
         ```python
-        >>> from transformers import BertTokenizer, BertForNextSentencePrediction
+        >>> from transformers import AutoTokenizer, BertForNextSentencePrediction
         >>> import torch
 
-        >>> tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
+        >>> tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
         >>> model = BertForNextSentencePrediction.from_pretrained("bert-base-uncased")
 
         >>> prompt = "In Italy, pizza served in formal settings, such as at a restaurant, is presented unsliced."
@@ -1617,7 +1615,6 @@ class BertForSequenceClassification(BertPreTrainedModel):
 
     @add_start_docstrings_to_model_forward(BERT_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
     @add_code_sample_docstrings(
-        processor_class=_TOKENIZER_FOR_DOC,
         checkpoint=_CHECKPOINT_FOR_SEQUENCE_CLASSIFICATION,
         output_type=SequenceClassifierOutput,
         config_class=_CONFIG_FOR_DOC,
@@ -1719,7 +1716,6 @@ class BertForMultipleChoice(BertPreTrainedModel):
 
     @add_start_docstrings_to_model_forward(BERT_INPUTS_DOCSTRING.format("batch_size, num_choices, sequence_length"))
     @add_code_sample_docstrings(
-        processor_class=_TOKENIZER_FOR_DOC,
         checkpoint=_CHECKPOINT_FOR_DOC,
         output_type=MultipleChoiceModelOutput,
         config_class=_CONFIG_FOR_DOC,
@@ -1799,7 +1795,6 @@ class BertForMultipleChoice(BertPreTrainedModel):
     BERT_START_DOCSTRING,
 )
 class BertForTokenClassification(BertPreTrainedModel):
-
     _keys_to_ignore_on_load_unexpected = [r"pooler"]
 
     def __init__(self, config):
@@ -1818,7 +1813,6 @@ class BertForTokenClassification(BertPreTrainedModel):
 
     @add_start_docstrings_to_model_forward(BERT_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
     @add_code_sample_docstrings(
-        processor_class=_TOKENIZER_FOR_DOC,
         checkpoint=_CHECKPOINT_FOR_TOKEN_CLASSIFICATION,
         output_type=TokenClassifierOutput,
         config_class=_CONFIG_FOR_DOC,
@@ -1886,7 +1880,6 @@ class BertForTokenClassification(BertPreTrainedModel):
     BERT_START_DOCSTRING,
 )
 class BertForQuestionAnswering(BertPreTrainedModel):
-
     _keys_to_ignore_on_load_unexpected = [r"pooler"]
 
     def __init__(self, config):
@@ -1901,7 +1894,6 @@ class BertForQuestionAnswering(BertPreTrainedModel):
 
     @add_start_docstrings_to_model_forward(BERT_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
     @add_code_sample_docstrings(
-        processor_class=_TOKENIZER_FOR_DOC,
         checkpoint=_CHECKPOINT_FOR_QA,
         output_type=QuestionAnsweringModelOutput,
         config_class=_CONFIG_FOR_DOC,
