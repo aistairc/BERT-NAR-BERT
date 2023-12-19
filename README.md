@@ -1,2 +1,31 @@
-# BERT2BERT
-Pre-trained sequence-to-sequence (S2S) models have recently attracted great attention for their wide scope of applications. However, these models are often limited to short texts in generation due to the slow autoregressive decoding. Furthermore, such pre-training is independent of the widely successful pre-trained BERT and related models, especially for decoding, due to the structural differences in BERT-related models and S2S models. The decoders are often limited to specific autoregressive language models, such as GPT-2. Thus, the encoder and decoder need to deal with inconsistent tokenization. To resolve these problems and train a fast and scalable S2S model, we aim at building a non-autoregressive S2S model that is flexible enough to employ BERTs as it’s backbone for not only the encoder but also the decoder. In this poster, as a first step to validate this aim, we propose to pre-train BERT models using the non-autoregressive approach, which we call BERT-to-BERT. We evaluate the pre-trained BERT-to-BERT model using the standard GLUE tasks. Experimental results show that the pre-training strategy is effective for BERT. It shows how our model with different settings consistently performs better than the original BERT model and the Optimus model.
+# BERT-NAR-BERT
+BERT-NAR-BERT (BnB) is a pre-trained non-autoregressive sequence-to-sequence model, which employs BERT as the backbone for the encoder and decoder for natural language understanding and generation tasks. During the pre-training and fine-tuning with BERT-NAR-BERT, two challenging aspects are considered by adopting the length classification and connectionist temporal classification models to control the output length of BnB. We evaluate it using a standard natural language understanding benchmark GLUE and three generation tasks – abstractive summarization, question generation, and machine translation. Our results show substantial improvements in inference speed (on average 10x faster) with only little deficiency in output quality when compared to our direct autoregressive baseline BERT2BERT model.
+
+
+		
+Architecture
+---------
+
+![N|Solid](https://github.com/aistairc/BERT-NAR-BERT/blob/master/BnB_Architecture.png?raw=true)
+
+The S2S BERT-NAR-BERT (BnB) architecture. The + sign to the right of the encoder box indicates, the input embeddings are the sum of the token embeddings, the position embeddings, and the type embeddings where the decoder box indicates the sum of the position, the type, and the latent embeddings.
+
+		
+Publications
+---------
+
+If you use this tool, please cite the following paper:
+
+Mohammad Golam Sohrab, Masaki Asada, Matīss Rikters, Makoto Miwa (2023). "BERT-NAR-BERT: A Non-autoregressive Pre-trained Sequence-to-Sequence Model Leveraging BERT Checkpoints." IEEE Access (2023).
+
+```bibtex
+@ARTICLE{Sohrab-EtAl2023IEEE,
+	author = {Sohrab, Mohammad Golam and Asada, Masaki and Rikters, Matīss and Miwa, Makoto},
+	journal={IEEE Access},
+	volume={},
+	number={},
+	pages = {1--12},
+	title = {{BERT-NAR-BERT: A Non-autoregressive Pre-trained Sequence-to-Sequence Model Leveraging BERT Checkpoints}},
+	year = {2023}
+}
+```
