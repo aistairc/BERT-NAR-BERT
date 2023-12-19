@@ -6,7 +6,7 @@ BERT-NAR-BERT (BnB) is a pre-trained non-autoregressive sequence-to-sequence mod
 Architecture
 ---------
 
-![N|Solid](https://github.com/aistairc/BERT-NAR-BERT/blob/master/BnB_Architecture.png?raw=true)
+![N|Solid](https://github.com/aistairc/BERT-NAR-BERT/blob/readme-update/BnB_Architecture.png?raw=true)
 
 The S2S BERT-NAR-BERT (BnB) architecture. The + sign to the right of the encoder box indicates, the input embeddings are the sum of the token embeddings, the position embeddings, and the type embeddings where the decoder box indicates the sum of the position, the type, and the latent embeddings.
 
