@@ -33,6 +33,7 @@ Mohammad Golam Sohrab, Masaki Asada, Matīss Rikters, Makoto Miwa (2023). "BERT-
 	volume={},
 	number={},
 	pages = {1--12},
+	doi={10.1109/ACCESS.2023.3346952},
 	title = {{BERT-NAR-BERT: A Non-autoregressive Pre-trained Sequence-to-Sequence Model Leveraging BERT Checkpoints}},
 	year = {2023}
 }
