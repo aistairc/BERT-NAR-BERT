@@ -24,19 +24,18 @@ Publications
 
 If you use this tool, please cite the following paper:
 
-Mohammad Golam Sohrab, Masaki Asada, Matīss Rikters, Makoto Miwa (2023). "BERT-NAR-BERT: A Non-autoregressive Pre-trained Sequence-to-Sequence Model Leveraging BERT Checkpoints." IEEE Access (2023).
+Mohammad Golam Sohrab, Masaki Asada, Matīss Rikters, Makoto Miwa, "BERT-NAR-BERT: A Non-autoregressive Pre-trained Sequence-to-Sequence Model Leveraging BERT Checkpoints." in IEEE Access, vol. 12, pp.23-33, 2024.
 
 ```bibtex
-@ARTICLE{Sohrab-EtAl2023IEEE,
-	author = {Sohrab, Mohammad Golam and Asada, Masaki and Rikters, Matīss and Miwa, Makoto},
-	journal={IEEE Access},
-	volume={},
-	number={},
-	pages = {1--12},
-	doi={10.1109/ACCESS.2023.3346952},
-	title = {{BERT-NAR-BERT: A Non-autoregressive Pre-trained Sequence-to-Sequence Model Leveraging BERT Checkpoints}},
-	year = {2023}
-}
+@ARTICLE{10373869,
+  author={Sohrab, Mohammad Golam and Asada, Masaki and Rikters, Matīss and Miwa, Makoto},
+  journal={IEEE Access}, 
+  title={BERT-NAR-BERT: A Non-Autoregressive Pre-Trained Sequence-to-Sequence Model Leveraging BERT Checkpoints}, 
+  year={2024},
+  volume={12},
+  number={},
+  pages={23-33},
+  doi={10.1109/ACCESS.2023.3346952}}
 ```
 
 		
